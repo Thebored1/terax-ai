@@ -1,3 +1,4 @@
+mod agent_detect;
 mod da_filter;
 #[cfg(windows)]
 mod job;
@@ -35,6 +36,7 @@ impl Default for PtyState {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn pty_open(
+    app: tauri::AppHandle,
     state: tauri::State<'_, PtyState>,
     registry: tauri::State<'_, WorkspaceRegistry>,
     cols: u16,
@@ -49,8 +51,9 @@ pub async fn pty_open(
         log::warn!("pty_open: cwd rejected: {e}");
         e
     })?;
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let session = tauri::async_runtime::spawn_blocking(move || {
-        session::spawn(cols, rows, cwd, workspace, on_data, on_exit).map(|(s, _)| s)
+        session::spawn(id, app, cols, rows, cwd, workspace, on_data, on_exit).map(|(s, _)| s)
     })
     .await
     .map_err(|e| {
@@ -61,7 +64,6 @@ pub async fn pty_open(
         log::error!("pty_open failed: {e}");
         e
     })?;
-    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     state.sessions.write().unwrap().insert(id, session);
     log::info!("pty opened id={id} cols={cols} rows={rows}");
     Ok(id)

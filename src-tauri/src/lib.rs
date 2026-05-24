@@ -1,6 +1,6 @@
 mod modules;
 
-use modules::{fs, git, net, pty, secrets, shell, workspace};
+use modules::{agent, fs, git, net, pty, secrets, shell, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -101,6 +101,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(tauri_plugin_log::log::LevelFilter::Info)
@@ -170,6 +171,8 @@ pub fn run() {
             workspace::workspace_current_dir,
             get_launch_dir,
             open_settings_window,
+            agent::agent_enable_claude_hooks,
+            agent::agent_claude_hooks_status,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,
