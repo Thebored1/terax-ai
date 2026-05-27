@@ -15,6 +15,17 @@
 
 Terax is a lightweight open-source terminal (ADE) built on Tauri 2 + Rust and React 19. A native PTY backend with a WebGL renderer, an agentic AI side-panel that runs against your own keys or fully local models, plus a code editor, file explorer, source control with a git graph, and a web preview pane built in. About 7-8 MB on disk. No telemetry. No account.
 
+## What Changed In This Fork
+
+- `Ctrl/Cmd+I` is now a focus toggle for AI workflow:
+  - opens AI and focuses input when closed
+  - focuses AI input when panel is open but not focused
+  - returns focus to active work pane when AI input is focused
+- Added automatic AI conversation checkpoints before user prompts with restore support.
+- Added live model fetching for provider-backed model pickers where supported.
+- Added OpenCode Zen as a provider option under OpenAI-compatible flow.
+- Added user-message restore/edit actions; removed the unused copy action icon.
+
 ## Screenshots
 
 <table>
