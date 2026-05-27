@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
+  encodeDynamicModelId,
   MODELS,
   PROVIDERS,
   getAutocompleteEligibleModels,
@@ -18,10 +19,12 @@ import {
   getProvider,
   providerNeedsKey,
   type ModelId,
+  type ModelInfo,
   type ProviderId,
   type ProviderInfo,
 } from "@/modules/ai/config";
 import { clearKey, getAllKeys, setKey } from "@/modules/ai/lib/keyring";
+import { discoverProviderModels } from "@/modules/ai/lib/modelDiscovery";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   emitKeysChanged,
@@ -116,6 +119,7 @@ const LOCAL_META: Partial<Record<ProviderId, LocalMeta>> = {
 export function ModelsSection() {
   const [keys, setKeys] = useState<KeysMap | null>(null);
   const [adding, setAdding] = useState<Set<ProviderId>>(new Set());
+  const [liveModels, setLiveModels] = useState<Partial<Record<ProviderId, ModelInfo[]>>>({});
 
   const defaultModel = usePreferencesStore((s) => s.defaultModelId);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
@@ -134,6 +138,48 @@ export function ModelsSection() {
   useEffect(() => {
     void getAllKeys().then(setKeys);
   }, []);
+
+  useEffect(() => {
+    if (!keys) return;
+    let cancelled = false;
+    const load = async () => {
+      const entries = await Promise.all(
+        PROVIDERS.map(async (p) => {
+          if (!isConfigured(p.id)) return [p.id, null] as const;
+          const cfg = localConfig(p.id);
+          try {
+            const models = await discoverProviderModels(p.id, {
+              apiKey: keys[p.id],
+              baseURL: cfg?.baseURL,
+            });
+            return [p.id, models] as const;
+          } catch {
+            return [p.id, null] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setLiveModels((prev) => {
+        const next = { ...prev };
+        for (const [id, models] of entries) {
+          if (models) next[id] = models;
+        }
+        return next;
+      });
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    keys,
+    lmstudioBaseURL,
+    mlxBaseURL,
+    ollamaBaseURL,
+    compatBaseURL,
+    openrouterModelId,
+  ]);
 
   const onSaveKey = async (provider: ProviderId, value: string) => {
     await setKey(provider, value);
@@ -193,8 +239,7 @@ export function ModelsSection() {
   };
 
   const isConfigured = (id: ProviderId): boolean => {
-    if (id === "openrouter")
-      return !!keys?.[id] && !!openrouterModelId.trim();
+    if (id === "openrouter") return !!keys?.[id];
     if (!isLocalProvider(id)) return !!keys?.[id];
     const cfg = localConfig(id);
     if (!cfg) return false;
@@ -251,6 +296,14 @@ export function ModelsSection() {
         defaultModel={defaultModel}
         configuredIds={configuredIds}
         keys={keys}
+        liveModels={liveModels}
+        manualModels={{
+          lmstudio: lmstudioModelId,
+          mlx: mlxModelId,
+          ollama: ollamaModelId,
+          "openai-compatible": compatModelId,
+          openrouter: openrouterModelId,
+        }}
       />
 
       <div className="flex flex-col gap-3">
@@ -390,10 +443,14 @@ function DefaultsBlock({
   defaultModel,
   configuredIds,
   keys,
+  liveModels,
+  manualModels,
 }: {
   defaultModel: ModelId;
   configuredIds: Set<ProviderId>;
   keys: KeysMap;
+  liveModels: Partial<Record<ProviderId, ModelInfo[]>>;
+  manualModels: Partial<Record<ProviderId, string>>;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -403,6 +460,8 @@ function DefaultsBlock({
           <DefaultModelPicker
             defaultModel={defaultModel}
             configuredIds={configuredIds}
+            liveModels={liveModels}
+            manualModels={manualModels}
           />
         </FieldRow>
         <AutocompleteRow keys={keys} configuredIds={configuredIds} />
@@ -414,9 +473,13 @@ function DefaultsBlock({
 function DefaultModelPicker({
   defaultModel,
   configuredIds,
+  liveModels,
+  manualModels,
 }: {
   defaultModel: ModelId;
   configuredIds: Set<ProviderId>;
+  liveModels: Partial<Record<ProviderId, ModelInfo[]>>;
+  manualModels: Partial<Record<ProviderId, string>>;
 }) {
   const m = getModel(defaultModel);
   const hasAny = configuredIds.size > 0;
@@ -451,7 +514,11 @@ function DefaultModelPicker({
       >
         <div className="max-h-72 overflow-y-auto overscroll-contain pr-1">
           {PROVIDERS.filter((p) => configuredIds.has(p.id)).map((p) => {
-            const models = MODELS.filter((x) => x.provider === p.id);
+            const models = withManualModel(
+              p.id,
+              liveModels[p.id] ?? MODELS.filter((x) => x.provider === p.id),
+              manualModels[p.id],
+            );
             if (models.length === 0) return null;
             return (
               <div key={p.id} className="px-1 pt-1.5 first:pt-1">
@@ -462,7 +529,7 @@ function DefaultModelPicker({
                 {models.map((mod) => (
                   <DropdownMenuItem
                     key={mod.id}
-                    onSelect={() => void setDefaultModel(mod.id as ModelId)}
+                    onSelect={() => void setDefaultModel(mod.id)}
                     className={cn(
                       "flex items-start gap-2 text-[12px]",
                       mod.id === defaultModel && "bg-accent/50",
@@ -483,6 +550,28 @@ function DefaultModelPicker({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function withManualModel(
+  provider: ProviderId,
+  models: readonly ModelInfo[],
+  modelId: string | undefined,
+): ModelInfo[] {
+  const id = modelId?.trim();
+  if (!id) return [...models];
+  const encoded = encodeDynamicModelId(provider, id);
+  if (models.some((m) => m.id === encoded || m.id === id)) return [...models];
+  return [
+    ...models,
+    {
+      id: encoded,
+      provider,
+      label: id,
+      hint: "Custom",
+      description: "Configured manually in Settings.",
+      capabilities: { intelligence: 3, speed: 3, cost: 3 },
+    },
+  ];
 }
 
 function AutocompleteRow({

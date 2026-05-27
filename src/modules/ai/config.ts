@@ -9,6 +9,7 @@ export type ProviderId =
   | "groq"
   | "deepseek"
   | "mistral"
+  | "opencode-zen"
   | "openrouter"
   | "openai-compatible"
   | "lmstudio"
@@ -81,6 +82,13 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyringAccount: "mistral-api-key",
     keyPrefix: null,
     consoleUrl: "https://console.mistral.ai/api-keys/",
+  },
+  {
+    id: "opencode-zen",
+    label: "OpenCode Zen",
+    keyringAccount: "opencode-zen-api-key",
+    keyPrefix: null,
+    consoleUrl: "https://opencode.ai/docs/zen",
   },
   {
     id: "openrouter",
@@ -246,6 +254,15 @@ export const MODELS = [
     tags: ["vision", "tools", "coding"],
   },
   {
+    id: "gemini-3-pro-preview",
+    provider: "google",
+    label: "Gemini 3 Pro Preview",
+    hint: "Flagship",
+    description: "Google's strongest multimodal reasoning model.",
+    capabilities: { intelligence: 5, speed: 3, cost: 2 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
     id: "gemini-3.1-flash-lite",
     provider: "google",
     label: "Gemini 3.1 Flash-Lite",
@@ -282,6 +299,15 @@ export const MODELS = [
     tags: ["vision", "tools", "coding"],
   },
   {
+    id: "gemini-2.5-flash-lite",
+    provider: "google",
+    label: "Gemini 2.5 Flash-Lite",
+    hint: "Lite",
+    description: "Cost-efficient Gemini 2.5 tier for high throughput.",
+    capabilities: { intelligence: 3, speed: 5, cost: 5 },
+    tags: ["vision", "tools"],
+  },
+  {
     id: "gemini-2.5-flash",
     provider: "google",
     label: "Gemini 2.5 Flash",
@@ -289,6 +315,42 @@ export const MODELS = [
     description: "Bulk throughput at low cost.",
     capabilities: { intelligence: 3, speed: 5, cost: 5 },
     tags: ["vision", "tools"],
+  },
+  {
+    id: "gemini-2.0-flash",
+    provider: "google",
+    label: "Gemini 2.0 Flash",
+    hint: "Stable",
+    description: "Previous-generation workhorse Gemini model.",
+    capabilities: { intelligence: 3, speed: 5, cost: 5 },
+    tags: ["vision", "tools"],
+  },
+  {
+    id: "gemini-2.0-flash-lite",
+    provider: "google",
+    label: "Gemini 2.0 Flash-Lite",
+    hint: "Lite",
+    description: "Lightweight previous-generation Gemini model.",
+    capabilities: { intelligence: 3, speed: 5, cost: 5 },
+    tags: ["vision", "tools"],
+  },
+  {
+    id: "gemma-4-31b-it",
+    provider: "google",
+    label: "Gemma 4 31B",
+    hint: "Open",
+    description: "Instruction-tuned Gemma 4 via the Gemini API.",
+    capabilities: { intelligence: 4, speed: 3, cost: 4 },
+    tags: ["vision", "reasoning", "tools", "coding"],
+  },
+  {
+    id: "gemma-4-26b-a4b-it",
+    provider: "google",
+    label: "Gemma 4 26B A4B",
+    hint: "Open",
+    description: "Efficient instruction-tuned Gemma 4 via the Gemini API.",
+    capabilities: { intelligence: 4, speed: 4, cost: 4 },
+    tags: ["vision", "reasoning", "tools", "coding"],
   },
 
   // ── xAI ───────────────────────────────────────────────────────────────────
@@ -487,16 +549,46 @@ export const MODELS = [
   },
 ] as const satisfies readonly ModelInfo[];
 
-export type ModelId = (typeof MODELS)[number]["id"];
+export type CuratedModelId = (typeof MODELS)[number]["id"];
+export type ModelId = string;
+
+const DYNAMIC_MODEL_SEP = "::";
+
+export function encodeDynamicModelId(provider: ProviderId, modelId: string): string {
+  return `${provider}${DYNAMIC_MODEL_SEP}${modelId}`;
+}
+
+export function decodeDynamicModelId(
+  id: string,
+): { provider: ProviderId; modelId: string } | null {
+  const idx = id.indexOf(DYNAMIC_MODEL_SEP);
+  if (idx === -1) return null;
+  const provider = id.slice(0, idx);
+  const modelId = id.slice(idx + DYNAMIC_MODEL_SEP.length);
+  if (!modelId || !PROVIDERS.some((p) => p.id === provider)) return null;
+  return { provider: provider as ProviderId, modelId };
+}
 
 export function getModel(id: ModelId): ModelInfo {
   const m = MODELS.find((x) => x.id === id);
-  if (!m) throw new Error(`Unknown model: ${id}`);
-  return m;
+  if (m) return m;
+  const dynamic = decodeDynamicModelId(id);
+  if (dynamic) {
+    const provider = getProvider(dynamic.provider);
+    return {
+      id,
+      provider: dynamic.provider,
+      label: dynamic.modelId,
+      hint: "Live",
+      description: `${provider.label} model discovered from provider API.`,
+      capabilities: { intelligence: 3, speed: 3, cost: 3 },
+    };
+  }
+  throw new Error(`Unknown model: ${id}`);
 }
 
 export function isKnownModelId(id: string): id is ModelId {
-  return MODELS.some((x) => x.id === id);
+  return MODELS.some((x) => x.id === id) || decodeDynamicModelId(id) !== null;
 }
 
 const FREEFORM_PROVIDERS: ReadonlySet<ProviderId> = new Set([
@@ -529,11 +621,17 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "claude-haiku-4-5": 200_000,
   "claude-opus-4-6": 200_000,
   "gemini-3.5-flash": 1_000_000,
+  "gemini-3-pro-preview": 1_000_000,
   "gemini-3.1-flash-lite": 1_000_000,
   "gemini-3.1-pro-preview": 1_000_000,
   "gemini-3-flash-preview": 1_000_000,
   "gemini-2.5-pro": 1_000_000,
+  "gemini-2.5-flash-lite": 1_000_000,
   "gemini-2.5-flash": 1_000_000,
+  "gemini-2.0-flash": 1_000_000,
+  "gemini-2.0-flash-lite": 1_000_000,
+  "gemma-4-31b-it": 256_000,
+  "gemma-4-26b-a4b-it": 256_000,
   "grok-4.20-reasoning": 2_000_000,
   "grok-4.20-non-reasoning": 2_000_000,
   "grok-4-fast-reasoning": 2_000_000,
@@ -554,6 +652,7 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "mistral-large-latest": 131_072,
   "mistral-medium-latest": 32_768,
   "codestral-latest": 256_000,
+  "opencode-zen-custom": 128_000,
 };
 
 export function getModelContextLimit(
@@ -645,6 +744,7 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Partial<Record<ProviderId, string>> = {
   google: "gemini-2.5-flash",
   xai: "grok-4-fast-reasoning",
   deepseek: "deepseek-v4-flash",
+  "opencode-zen": "",
   openrouter: "openai/gpt-5.4-mini",
   "openai-compatible": "",
 };
@@ -733,7 +833,11 @@ const LITE_SYSTEM_PROMPT_MODEL_IDS = new Set<string>([
   "gpt-4.1-mini",
   "claude-haiku-4-5",
   "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
   "gemini-3-flash-preview",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemma-4-26b-a4b-it",
   "deepseek-v4-flash",
   "gpt-oss-120b",
   "openai/gpt-oss-20b",

@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, net, pty, secrets, shell, workspace};
+use modules::{agent, fs, git, net, pty, secrets, shell, snapshots, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -19,7 +19,9 @@ fn parse_launch_dir() -> Option<String> {
         if arg.starts_with('-') {
             continue;
         }
-        let Ok(canon) = std::fs::canonicalize(&arg) else { continue };
+        let Ok(canon) = std::fs::canonicalize(&arg) else {
+            continue;
+        };
         if !canon.is_dir() {
             continue;
         }
@@ -185,6 +187,10 @@ pub fn run() {
             net::lm_ping,
             net::ai_http_request,
             net::ai_http_stream,
+            snapshots::snapshot_create,
+            snapshots::snapshot_list,
+            snapshots::snapshot_restore,
+            snapshots::snapshot_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

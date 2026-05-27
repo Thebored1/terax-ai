@@ -31,6 +31,7 @@ import {
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
 import { createContextAwareTransport } from "../lib/transport";
+import { createSnapshot } from "../lib/snapshots";
 import type { ToolContext } from "../tools/tools";
 
 type Live = {
@@ -562,8 +563,36 @@ export async function sendMessage(text: string): Promise<boolean> {
   if (!sessionId) return false;
   if (providerNeedsKey(getModel(state.selectedModelId).provider) && !getActiveProviderKey()) return false;
   const c = getOrCreateChat(sessionId);
+  try {
+    const workspaceRoot = state.live.getWorkspaceRoot() ?? state.live.getCwd();
+    if (!workspaceRoot) throw new Error("workspace root unavailable");
+    const snap = await createSnapshot(sessionId, text, workspaceRoot);
+    window.dispatchEvent(
+      new CustomEvent("terax:snapshot-created", { detail: snap }),
+    );
+  } catch (e) {
+    console.warn("[terax] snapshot_create failed:", e);
+    window.dispatchEvent(
+      new CustomEvent("terax:snapshot-created", { detail: null }),
+    );
+  }
   await c.sendMessage({ text });
   return true;
+}
+
+export function truncateActiveSessionBeforeMessage(messageId: string): void {
+  const state = useChatStore.getState();
+  const sessionId = state.activeSessionId;
+  if (!sessionId) return;
+  const c = getOrCreateChat(sessionId);
+  const idx = c.messages.findIndex((m) => m.id === messageId);
+  if (idx < 0) return;
+  c.stop();
+  const next = c.messages.slice(0, idx);
+  c.messages = next;
+  flushPersist(sessionId);
+  void saveMessages(sessionId, next);
+  state.persistMessages(sessionId, next);
 }
 
 export function stop(): void {

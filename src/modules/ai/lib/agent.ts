@@ -11,6 +11,7 @@ import {
   DEFAULT_MODEL_ID,
   getModel,
   getModelContextLimit,
+  decodeDynamicModelId,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
   MLX_DEFAULT_BASE_URL,
@@ -138,6 +139,16 @@ export async function buildLanguageModel(
       })(resolvedModelId);
       break;
     }
+    case "opencode-zen": {
+      const { createOpenAICompatible } =
+        await import("@ai-sdk/openai-compatible");
+      built = createOpenAICompatible({
+        name: "opencode-zen",
+        baseURL: "https://opencode.ai/zen/v1",
+        apiKey: key,
+      })(resolvedModelId);
+      break;
+    }
     case "groq": {
       const { createGroq } = await import("@ai-sdk/groq");
       built = createGroq({ apiKey: key })(resolvedModelId);
@@ -230,7 +241,7 @@ export function buildConfiguredLanguageModel(
   local: LocalProviderConfig = {},
 ): Promise<LanguageModel> {
   const m = getModel(modelId);
-  let resolvedId: string = m.id;
+  let resolvedId: string = decodeDynamicModelId(modelId)?.modelId ?? m.id;
   if (m.id === "lmstudio-local") {
     if (!local.lmstudioModelId?.trim()) {
       throw new Error(

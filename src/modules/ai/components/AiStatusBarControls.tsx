@@ -19,6 +19,7 @@ import {
   BrainIcon,
   ChatGptIcon,
   ClaudeIcon,
+  CodeIcon,
   Clock01Icon,
   CoinsDollarIcon,
   ComputerIcon,
@@ -42,18 +43,19 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { motion } from "motion/react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  encodeDynamicModelId,
   getModel,
   MODELS,
   providerNeedsKey,
   PROVIDERS,
   type ModelCapabilities,
-  type ModelId,
   type ModelInfo,
   type ProviderId,
 } from "../config";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
+import { discoverProviderModels } from "../lib/modelDiscovery";
 import { toggleFavoriteModel } from "../lib/modelPrefs";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -67,6 +69,7 @@ const PROVIDER_ICON = {
   groq: FlashIcon,
   deepseek: DeepseekIcon,
   mistral: MistralIcon,
+  "opencode-zen": CodeIcon,
   openrouter: GlobeIcon,
   "openai-compatible": PlugIcon,
   lmstudio: ComputerIcon,
@@ -212,6 +215,20 @@ function ModelDropdown() {
   const setSelected = useChatStore((s) => s.setSelectedModelId);
   const favoriteIds = usePreferencesStore((s) => s.favoriteModelIds);
   const recentIds = usePreferencesStore((s) => s.recentModelIds);
+  const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
+  const mlxBaseURL = usePreferencesStore((s) => s.mlxBaseURL);
+  const ollamaBaseURL = usePreferencesStore((s) => s.ollamaBaseURL);
+  const openaiCompatibleBaseURL = usePreferencesStore(
+    (s) => s.openaiCompatibleBaseURL,
+  );
+  const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
+  const mlxModelId = usePreferencesStore((s) => s.mlxModelId);
+  const ollamaModelId = usePreferencesStore((s) => s.ollamaModelId);
+  const openaiCompatibleModelId = usePreferencesStore(
+    (s) => s.openaiCompatibleModelId,
+  );
+  const openrouterModelId = usePreferencesStore((s) => s.openrouterModelId);
+  const [liveModels, setLiveModels] = useState<Partial<Record<ProviderId, ModelInfo[]>>>({});
   const current = getModel(selected);
   const [search, setSearch] = useState("");
   const [activeProvider, setActiveProvider] = useState<ProviderId | null>(null);
@@ -223,6 +240,87 @@ function ModelDropdown() {
 
   const hasKeyFor = (id: ProviderId) =>
     providerNeedsKey(id) ? !!apiKeys[id] : true;
+
+  const allModels = useMemo(() => {
+    const byProvider = new Map<ProviderId, ModelInfo[]>();
+    for (const m of MODELS) {
+      const list = byProvider.get(m.provider) ?? [];
+      list.push(m);
+      byProvider.set(m.provider, list);
+    }
+    for (const [provider, models] of Object.entries(liveModels)) {
+      byProvider.set(provider as ProviderId, models);
+    }
+    const addManual = (provider: ProviderId, modelId: string) => {
+      const id = modelId.trim();
+      if (!id) return;
+      const encoded = encodeDynamicModelId(provider, id);
+      const list = byProvider.get(provider) ?? [];
+      if (list.some((m) => m.id === encoded || m.id === id)) return;
+      list.push({
+        id: encoded,
+        provider,
+        label: id,
+        hint: "Custom",
+        description: "Configured manually in Settings.",
+        capabilities: { intelligence: 3, speed: 3, cost: 3 },
+      });
+      byProvider.set(provider, list);
+    };
+    addManual("lmstudio", lmstudioModelId);
+    addManual("mlx", mlxModelId);
+    addManual("ollama", ollamaModelId);
+    addManual("openai-compatible", openaiCompatibleModelId);
+    addManual("openrouter", openrouterModelId);
+    return [...byProvider.values()].flat();
+  }, [
+    liveModels,
+    lmstudioModelId,
+    mlxModelId,
+    ollamaModelId,
+    openaiCompatibleModelId,
+    openrouterModelId,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const baseURLFor = (provider: ProviderId) => {
+      if (provider === "lmstudio") return lmstudioBaseURL;
+      if (provider === "mlx") return mlxBaseURL;
+      if (provider === "ollama") return ollamaBaseURL;
+      if (provider === "openai-compatible") return openaiCompatibleBaseURL;
+      return undefined;
+    };
+    const load = async () => {
+      const entries = await Promise.all(
+        PROVIDERS.map(async (p) => {
+          if (!hasKeyFor(p.id)) return [p.id, null] as const;
+          try {
+            const models = await discoverProviderModels(p.id, {
+              apiKey: apiKeys[p.id],
+              baseURL: baseURLFor(p.id),
+            });
+            return [p.id, models] as const;
+          } catch {
+            return [p.id, null] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setLiveModels((prev) => {
+        const next = { ...prev };
+        for (const [id, models] of entries) {
+          if (models) next[id] = models;
+        }
+        return next;
+      });
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKeys, lmstudioBaseURL, mlxBaseURL, ollamaBaseURL, openaiCompatibleBaseURL]);
 
   const sortedProviders = useMemo(() => {
     const configured: (typeof PROVIDERS)[number][] = [];
@@ -236,7 +334,7 @@ function ModelDropdown() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let pool: readonly ModelInfo[] = MODELS;
+    let pool: readonly ModelInfo[] = allModels;
     if (tab === "favorites") {
       pool = pool.filter((m) => favoriteIds.includes(m.id));
     } else if (tab === "recent") {
@@ -260,7 +358,7 @@ function ModelDropdown() {
       );
     }
     return pool;
-  }, [activeProvider, favoriteIds, recentIds, search, tab]);
+  }, [activeProvider, allModels, favoriteIds, recentIds, search, tab]);
 
   return (
     <DropdownMenu>
@@ -397,7 +495,7 @@ function ModelDropdown() {
                       void openSettingsWindow("models");
                       return;
                     }
-                    setSelected(m.id as ModelId);
+                    setSelected(m.id);
                   }}
                   onToggleFavorite={() => void toggleFavoriteModel(m.id)}
                 />

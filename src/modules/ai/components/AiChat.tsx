@@ -25,14 +25,26 @@ import { motion } from "motion/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowRight01Icon,
+  ArrowReloadHorizontalIcon,
   CodeIcon,
+  Copy01Icon,
   File01Icon,
   HashtagIcon,
+  PencilEdit02Icon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { SLASH_COMMANDS, TERAX_CMD_RE } from "../lib/slashCommands";
 import { Spinner } from "@/components/ui/spinner";
-import { useChatStore, sendMessage } from "../store/chatStore";
+import {
+  truncateActiveSessionBeforeMessage,
+  useChatStore,
+  sendMessage,
+} from "../store/chatStore";
+import {
+  listSnapshots,
+  restoreSnapshot,
+  type SnapshotMeta,
+} from "../lib/snapshots";
 import type {
   ChatStatus,
   DynamicToolUIPart,
@@ -40,7 +52,7 @@ import type {
   UIMessage,
   UIMessagePart,
 } from "ai";
-import { memo, useCallback, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { AiToolApproval } from "./AiToolApproval";
 
 function CommandSnippet({ name }: { name: string }) {
@@ -196,6 +208,11 @@ export function AiChatView({
   const hitStepCap = useChatStore((s) => s.agentMeta.hitStepCap);
   const compactionNotice = useChatStore((s) => s.agentMeta.compactionNotice);
   const patchAgentMeta = useChatStore((s) => s.patchAgentMeta);
+  const sessionId = useChatStore((s) => s.activeSessionId);
+  const workspaceRoot = useChatStore(
+    (s) => s.live.getWorkspaceRoot() ?? s.live.getCwd(),
+  );
+  const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
   const showContinue =
     !isBusy && hitStepCap && lastMessage?.role === "assistant";
 
@@ -203,6 +220,28 @@ export function AiChatView({
     (id: string, approved: boolean) => addToolApprovalResponse({ id, approved }),
     [addToolApprovalResponse],
   );
+
+  useEffect(() => {
+    if (!sessionId || !workspaceRoot) {
+      setSnapshots([]);
+      return;
+    }
+    let cancelled = false;
+    const load = () => {
+      void listSnapshots(sessionId, workspaceRoot)
+        .then((items) => {
+          if (!cancelled) setSnapshots(items);
+        })
+        .catch((e) => console.warn("[terax] snapshot_list failed:", e));
+    };
+    load();
+    const onCreated = () => load();
+    window.addEventListener("terax:snapshot-created", onCreated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("terax:snapshot-created", onCreated);
+    };
+  }, [sessionId, workspaceRoot]);
 
   if (messages.length === 0) {
     return (
@@ -220,14 +259,23 @@ export function AiChatView({
   return (
     <Conversation>
       <ConversationContent className="gap-5 p-3">
-        {messages.map((m) => (
-          <RenderedMessage
-            key={m.id}
-            message={m}
-            onApproval={onApproval}
-            streaming={m.id === streamingMessageId}
-          />
-        ))}
+        {(() => {
+          let userIndex = 0;
+          return messages.map((m) => {
+            const snapshot =
+              m.role === "user" ? snapshots[userIndex++] ?? null : null;
+            return (
+              <RenderedMessage
+                key={m.id}
+                message={m}
+                snapshot={snapshot}
+                workspaceRoot={workspaceRoot}
+                onApproval={onApproval}
+                streaming={m.id === streamingMessageId}
+              />
+            );
+          });
+        })()}
         {compactionNotice && (
           <CompactionNotice
             droppedCount={compactionNotice.droppedCount}
@@ -319,10 +367,14 @@ const ContinueRow = memo(function ContinueRow({
 
 const RenderedMessage = memo(function RenderedMessage({
   message,
+  snapshot,
+  workspaceRoot,
   onApproval,
   streaming,
 }: {
   message: UIMessage;
+  snapshot: SnapshotMeta | null;
+  workspaceRoot: string | null;
   onApproval: (id: string, approved: boolean) => void;
   streaming: boolean;
 }) {
@@ -359,6 +411,11 @@ const RenderedMessage = memo(function RenderedMessage({
             </p>
           ) : null}
         </MessageContent>
+        <UserMessageActions
+          messageId={message.id}
+          snapshot={snapshot}
+          workspaceRoot={workspaceRoot}
+        />
       </Message>
     );
   }
@@ -403,6 +460,81 @@ const RenderedMessage = memo(function RenderedMessage({
         </div>
       </MessageContent>
     </Message>
+  );
+});
+
+const UserMessageActions = memo(function UserMessageActions({
+  messageId,
+  snapshot,
+  workspaceRoot,
+}: {
+  messageId: string;
+  snapshot: SnapshotMeta | null;
+  workspaceRoot: string | null;
+}) {
+  const [busy, setBusy] = useState(false);
+  const canRestore = !!snapshot && !!workspaceRoot;
+  const onRestore = useCallback(async () => {
+    if (busy || !snapshot || !workspaceRoot) return;
+    setBusy(true);
+    try {
+      const result = await restoreSnapshot(snapshot.id, workspaceRoot);
+      window.dispatchEvent(
+        new CustomEvent("terax:snapshot-restored", { detail: result }),
+      );
+      truncateActiveSessionBeforeMessage(messageId);
+    } catch (e) {
+      console.warn("[terax] snapshot_restore failed:", e);
+      window.alert(`Restore failed: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, messageId, snapshot, workspaceRoot]);
+
+  const time = snapshot
+    ? new Date(snapshot.createdAt).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "No checkpoint";
+
+  return (
+    <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-muted-foreground opacity-80">
+      <span className="px-1">{time}</span>
+      <button
+        type="button"
+        onClick={onRestore}
+        disabled={!canRestore || busy}
+        className="rounded-md p-1.5 transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-35"
+        title={
+          snapshot
+            ? `Restore to this point (${snapshot.fileCount} files)`
+            : "No checkpoint was created for this message"
+        }
+      >
+        <HugeiconsIcon
+          icon={ArrowReloadHorizontalIcon}
+          size={13}
+          strokeWidth={1.8}
+        />
+      </button>
+      <button
+        type="button"
+        disabled
+        className="rounded-md p-1.5 opacity-35"
+        title="Edit message is not implemented"
+      >
+        <HugeiconsIcon icon={PencilEdit02Icon} size={13} strokeWidth={1.8} />
+      </button>
+      <button
+        type="button"
+        disabled
+        className="rounded-md p-1.5 opacity-35"
+        title="Copy message is not implemented"
+      >
+        <HugeiconsIcon icon={Copy01Icon} size={13} strokeWidth={1.8} />
+      </button>
+    </div>
   );
 });
 

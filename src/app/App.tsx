@@ -507,6 +507,33 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    type SnapshotRestoredPayload = { paths: string[] };
+    const reloadEditors = (paths: string[]) => {
+      const changed = new Set(paths.map((p) => p.replace(/\\/g, "/")));
+      for (const t of tabsRef.current) {
+        if (t.kind !== "editor") continue;
+        if (changed.size === 0 || changed.has(t.path.replace(/\\/g, "/"))) {
+          editorRefs.current.get(t.id)?.reload();
+        }
+      }
+    };
+    const onLocalRestore = (event: Event) => {
+      const detail = (event as CustomEvent<SnapshotRestoredPayload>).detail;
+      reloadEditors(detail?.paths ?? []);
+    };
+    window.addEventListener("terax:snapshot-restored", onLocalRestore);
+    const unlistenPromise =
+      getCurrentWebviewWindow().listen<SnapshotRestoredPayload>(
+        "snapshot:restored",
+        (event) => reloadEditors(event.payload.paths ?? []),
+      );
+    return () => {
+      window.removeEventListener("terax:snapshot-restored", onLocalRestore);
+      void unlistenPromise.then((un) => un());
+    };
+  }, []);
+
   const editorWatchRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const want = new Set<string>();
@@ -700,18 +727,39 @@ export default function App() {
     return null;
   }, [tabs, activeId]);
 
+  const focusActiveWorkPane = useCallback(() => {
+    const t = tabsRef.current.find((x) => x.id === activeId);
+    if (t?.kind === "terminal") {
+      terminalRefs.current.get(t.activeLeafId)?.focus();
+      return;
+    }
+    if (t?.kind === "editor") {
+      editorRefs.current.get(activeId)?.focus();
+    }
+  }, [activeId]);
+
   const togglePanelAndFocus = useCallback(() => {
     if (!hasComposer) {
       void openSettingsWindow("models");
       return;
     }
-    if (panelOpen) {
-      useChatStore.getState().closePanel();
-    } else {
-      openPanel();
-      focusInput(null);
+    const activeElement = document.activeElement as HTMLElement | null;
+    const inputFocused = !!activeElement?.closest("[data-ai-input-bar]");
+    if (panelOpen && inputFocused) {
+      focusActiveWorkPane();
+      return;
     }
-  }, [hasComposer, panelOpen, openPanel, focusInput]);
+    if (!panelOpen) {
+      openPanel();
+    }
+    focusInput(null);
+  }, [
+    hasComposer,
+    panelOpen,
+    focusActiveWorkPane,
+    openPanel,
+    focusInput,
+  ]);
 
   const attachSelection = useChatStore((s) => s.attachSelection);
 
@@ -1238,7 +1286,7 @@ export default function App() {
         term.focus();
         return true;
       },
-      getWorkspaceRoot: () => explorerRoot ?? launchCwd ?? home ?? null,
+      getWorkspaceRoot: () => launchCwd ?? explorerRoot ?? home ?? null,
       getActiveFile: () => {
         const t = tabs.find((x) => x.id === activeId);
         return t?.kind === "editor" ? t.path : null;

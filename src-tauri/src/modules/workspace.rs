@@ -157,7 +157,7 @@ fn resolve_launch_cwd(cli_dir: Option<&str>, env_cwd: Option<PathBuf>) -> Option
             return Some(p);
         }
     }
-    env_cwd.filter(|p| is_usable_launch_dir(p))
+    env_cwd.and_then(normalize_launch_cwd)
 }
 
 pub fn launch_cwd_snapshot() -> Option<PathBuf> {
@@ -168,13 +168,23 @@ fn resolve_launch_dir() -> PathBuf {
     if let Some(cwd) = launch_cwd_snapshot() {
         return cwd;
     }
-    if let Some(cwd) = std::env::current_dir()
-        .ok()
-        .filter(|p| is_usable_launch_dir(p))
-    {
+    if let Some(cwd) = std::env::current_dir().ok().and_then(normalize_launch_cwd) {
         return cwd;
     }
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"))
+}
+
+fn normalize_launch_cwd(path: PathBuf) -> Option<PathBuf> {
+    if is_usable_launch_dir(&path) {
+        return Some(path);
+    }
+    if cfg!(debug_assertions) && path.file_name().and_then(|s| s.to_str()) == Some("src-tauri") {
+        let parent = path.parent()?.to_path_buf();
+        if is_usable_launch_dir(&parent) {
+            return Some(parent);
+        }
+    }
+    None
 }
 
 fn is_usable_launch_dir(path: &Path) -> bool {
@@ -764,6 +774,17 @@ mod auth_tests {
     fn resolve_launch_cwd_falls_back_to_env_when_cli_missing() {
         let env = tempdir("envonly");
         assert_eq!(resolve_launch_cwd(None, Some(env.clone())), Some(env));
+    }
+
+    #[test]
+    fn resolve_launch_cwd_uses_parent_when_env_is_src_tauri() {
+        let root = tempdir("repo");
+        let src_tauri = root.join("src-tauri");
+        fs::create_dir_all(&src_tauri).expect("src-tauri");
+        assert_eq!(
+            resolve_launch_cwd(None, Some(src_tauri)),
+            Some(root.clone())
+        );
     }
 
     #[test]
