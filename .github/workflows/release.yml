@@ -94,3 +94,75 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Build Inno Setup installer (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1
+          if (-not $msi) {
+            throw "No MSI artifact found in src-tauri/target/release/bundle/msi"
+          }
+
+          $version = (Get-Content "src-tauri/tauri.conf.json" | ConvertFrom-Json).version
+          if (-not $version) {
+            throw "Could not read version from src-tauri/tauri.conf.json"
+          }
+
+          $issuer = "${{ github.repository_owner }}"
+          $iss = @"
+          #define MyAppName "Terax"
+          #define MyAppVersion "${version}"
+          #define MyAppPublisher "${issuer}"
+          #define MyAppExeName "Terax.exe"
+          #define MyAppURL "https://github.com/${{ github.repository }}"
+          #define MsiPath "${($msi.FullName -replace '\\','\\')}"
+
+          [Setup]
+          AppId={{A44A93D4-0E66-49DF-9F24-BD77B8D4D2FA}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppPublisher={#MyAppPublisher}
+          AppPublisherURL={#MyAppURL}
+          AppSupportURL={#MyAppURL}
+          AppUpdatesURL={#MyAppURL}/releases
+          DefaultDirName={autopf}\{#MyAppName}
+          DefaultGroupName={#MyAppName}
+          DisableProgramGroupPage=yes
+          OutputDir=src-tauri\target\release\bundle\inno
+          OutputBaseFilename=Terax_{#MyAppVersion}_x64-setup
+          Compression=lzma
+          SolidCompression=yes
+          WizardStyle=modern
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
+          PrivilegesRequired=lowest
+
+          [Languages]
+          Name: "english"; MessagesFile: "compiler:Default.isl"
+
+          [Files]
+          Source: "{#MsiPath}"; DestDir: "{tmp}"; DestName: "terax.msi"; Flags: deleteafterinstall
+
+          [Run]
+          Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\terax.msi"""; StatusMsg: "Installing Terax..."; Flags: waituntilterminated
+          "@
+
+          $issPath = "src-tauri/target/release/inno-terax.iss"
+          Set-Content -Path $issPath -Value $iss -Encoding UTF8
+
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" $issPath
+
+      - name: Upload Inno installer to GitHub Release
+        if: matrix.platform == 'windows-latest' && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $asset = Get-ChildItem "src-tauri/target/release/bundle/inno/*.exe" | Select-Object -First 1
+          if (-not $asset) {
+            throw "No Inno installer found in src-tauri/target/release/bundle/inno"
+          }
+          gh release upload "${{ github.ref_name }}" "$($asset.FullName)" --clobber
