@@ -27,7 +27,6 @@ import {
   ArrowRight01Icon,
   ArrowReloadHorizontalIcon,
   CodeIcon,
-  Copy01Icon,
   File01Icon,
   HashtagIcon,
   PencilEdit02Icon,
@@ -415,6 +414,7 @@ const RenderedMessage = memo(function RenderedMessage({
           messageId={message.id}
           snapshot={snapshot}
           workspaceRoot={workspaceRoot}
+          rawText={rawText}
         />
       </Message>
     );
@@ -467,10 +467,12 @@ const UserMessageActions = memo(function UserMessageActions({
   messageId,
   snapshot,
   workspaceRoot,
+  rawText,
 }: {
   messageId: string;
   snapshot: SnapshotMeta | null;
   workspaceRoot: string | null;
+  rawText: string;
 }) {
   const [busy, setBusy] = useState(false);
   const canRestore = !!snapshot && !!workspaceRoot;
@@ -490,6 +492,24 @@ const UserMessageActions = memo(function UserMessageActions({
       setBusy(false);
     }
   }, [busy, messageId, snapshot, workspaceRoot]);
+
+  const onEdit = useCallback(async () => {
+    if (busy || !snapshot || !workspaceRoot) return;
+    setBusy(true);
+    try {
+      const result = await restoreSnapshot(snapshot.id, workspaceRoot);
+      window.dispatchEvent(
+        new CustomEvent("terax:snapshot-restored", { detail: result }),
+      );
+      truncateActiveSessionBeforeMessage(messageId);
+      useChatStore.getState().focusInput(rawText);
+    } catch (e) {
+      console.warn("[terax] snapshot_restore + edit failed:", e);
+      window.alert(`Edit failed: ${String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, messageId, snapshot, workspaceRoot, rawText]);
 
   const time = snapshot
     ? new Date(snapshot.createdAt).toLocaleTimeString([], {
@@ -520,19 +540,16 @@ const UserMessageActions = memo(function UserMessageActions({
       </button>
       <button
         type="button"
-        disabled
-        className="rounded-md p-1.5 opacity-35"
-        title="Edit message is not implemented"
+        onClick={onEdit}
+        disabled={!canRestore || busy}
+        className="rounded-md p-1.5 transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-35"
+        title={
+          snapshot
+            ? `Edit message — restore & prepopulate (${snapshot.fileCount} files)`
+            : "No checkpoint was created for this message"
+        }
       >
         <HugeiconsIcon icon={PencilEdit02Icon} size={13} strokeWidth={1.8} />
-      </button>
-      <button
-        type="button"
-        disabled
-        className="rounded-md p-1.5 opacity-35"
-        title="Copy message is not implemented"
-      >
-        <HugeiconsIcon icon={Copy01Icon} size={13} strokeWidth={1.8} />
       </button>
     </div>
   );
