@@ -1,6 +1,7 @@
 import { useChat, type UIMessage } from "@ai-sdk/react";
 import type { ToolUIPart, UIMessagePart } from "ai";
 import { useEffect, useMemo, useRef } from "react";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import { native } from "../lib/native";
 import { checkReadable } from "../lib/security";
 import { resolvePath } from "../tools/tools";
@@ -67,6 +68,7 @@ function Bridge({
   const openMini = useChatStore((s) => s.openMini);
   const persistMessages = useChatStore((s) => s.persistMessages);
   const setApprovalResponder = useChatStore((s) => s.setApprovalResponder);
+  const agentAutoApprove = usePreferencesStore((s) => s.agentAutoApprove);
 
   // Expose the approval responder so the diff tab can resolve approvals.
   // We keep it in a ref-stable closure so identity is stable per render.
@@ -123,6 +125,29 @@ function Bridge({
   useEffect(() => {
     if (approvalsPending > 0) openMini();
   }, [approvalsPending, openMini]);
+
+  const autoApprovedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    autoApprovedRef.current = new Set();
+  }, [sessionId]);
+  useEffect(() => {
+    if (!agentAutoApprove) return;
+    const pendingIds: string[] = [];
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      for (const p of m.parts as AnyPart[]) {
+        if ((p as { state?: string }).state !== "approval-requested") continue;
+        const id = (p as { approval?: { id?: string } }).approval?.id;
+        if (!id || autoApprovedRef.current.has(id)) continue;
+        pendingIds.push(id);
+      }
+    }
+    if (pendingIds.length === 0) return;
+    for (const id of pendingIds) {
+      autoApprovedRef.current.add(id);
+      void addToolApprovalResponse({ id, approved: true });
+    }
+  }, [agentAutoApprove, messages, addToolApprovalResponse]);
 
   // ---- AI diff tab management ----------------------------------------------
   // We track which approvalIds have already opened a tab so re-renders don't

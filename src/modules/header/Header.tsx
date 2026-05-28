@@ -113,7 +113,6 @@ export function Header({
       <HugeiconsIcon icon={Settings01Icon} size={15} strokeWidth={1.75} />
     </Button>
   );
-
   return (
     <div
       ref={rootRef}

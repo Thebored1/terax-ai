@@ -4,8 +4,11 @@ import {
   applyResize,
   clampGeom,
   defaultGeom,
+  snapToSide,
+  snapToEdges,
   type Geom,
   type ResizeDir,
+  type SnapSide,
   type Viewport,
 } from "./miniWindowGeometry";
 
@@ -44,6 +47,7 @@ function saveGeom(g: Geom) {
 }
 
 type Compute = (start: Geom, dx: number, dy: number, vp: Viewport) => Geom;
+type Finalize = (current: Geom, vp: Viewport) => Geom;
 
 /** Drives the mini window's position and size entirely through the DOM (no
  * React state), so neither chat streaming nor any other re-render can disturb
@@ -87,15 +91,29 @@ export function useMiniWindowGeometry() {
     // Reclamp into the new viewport; persistence is left to the next gesture
     // since loadGeom re-clamps on startup anyway.
     const onResize = () => write(clampGeom(geom.current, viewport()));
+    const onSnap = (ev: Event) => {
+      const side = (ev as CustomEvent<SnapSide>).detail;
+      if (side !== "left" && side !== "right") return;
+      const next = snapToSide(geom.current, viewport(), side);
+      write(next);
+      saveGeom(next);
+    };
     window.addEventListener("resize", onResize);
+    window.addEventListener("terax:mini-snap", onSnap as EventListener);
     return () => {
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("terax:mini-snap", onSnap as EventListener);
       if (frame.current) cancelAnimationFrame(frame.current);
     };
   }, [write]);
 
   const beginGesture = useCallback(
-    (e: React.PointerEvent, compute: Compute, threshold: number) => {
+    (
+      e: React.PointerEvent,
+      compute: Compute,
+      threshold: number,
+      finalize?: Finalize,
+    ) => {
       const el = e.currentTarget as HTMLElement;
       const pointerId = e.pointerId;
       const startX = e.clientX;
@@ -129,7 +147,9 @@ export function useMiniWindowGeometry() {
         if (!armed) return;
         el.releasePointerCapture?.(pointerId);
         document.body.style.userSelect = "";
-        saveGeom(geom.current);
+        const finalGeom = finalize ? finalize(geom.current, viewport()) : geom.current;
+        write(finalGeom);
+        saveGeom(finalGeom);
       };
       el.addEventListener("pointermove", onMove);
       el.addEventListener("pointerup", onUp);
@@ -148,7 +168,7 @@ export function useMiniWindowGeometry() {
         )
       )
         return;
-      beginGesture(e, applyDrag, 4);
+      beginGesture(e, applyDrag, 4, snapToEdges);
     },
     [beginGesture],
   );

@@ -7,6 +7,7 @@ import {
   ContextTrigger,
 } from "@/components/ai-elements/context";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,7 @@ import {
   Add01Icon,
   AlertCircleIcon,
   ArrowDown01Icon,
+  CancelCircleIcon,
   Cancel01Icon,
   Delete02Icon,
   FilterIcon,
@@ -33,11 +35,10 @@ import { estimateCost, getModel, getModelContextLimit } from "../config";
 import type { ResizeDir } from "../lib/miniWindowGeometry";
 import type { SessionMeta } from "../lib/sessions";
 import { useMiniWindowGeometry } from "../lib/useMiniWindowGeometry";
-import { useAgentsStore } from "../store/agentsStore";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setAgentAutoApprove } from "@/modules/settings/store";
 import { usePlanStore } from "../store/planStore";
-import { AgentSwitcher } from "./AgentSwitcher";
 import { AiChatView } from "./AiChat";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoStrip } from "./TodoStrip";
@@ -181,6 +182,7 @@ function Body({
       <Header
         step={step}
         isBusy={isBusy}
+        onStop={() => void helpers.stop()}
         onClose={onClose}
         onExpand={onExpand}
         messages={helpers.messages}
@@ -249,6 +251,7 @@ function EmptyShell({
       <Header
         step={null}
         isBusy={false}
+        onStop={() => undefined}
         onClose={onClose}
         onExpand={onExpand}
         onHeaderPointerDown={onHeaderPointerDown}
@@ -263,37 +266,49 @@ function EmptyShell({
 function Header({
   step,
   isBusy,
+  onStop,
   onClose,
   messages,
   onHeaderPointerDown,
 }: {
   step: string | null;
   isBusy: boolean;
+  onStop: () => void;
   onClose: () => void;
   onExpand: () => void;
   messages?: UIMessage[];
   onHeaderPointerDown: (e: React.PointerEvent) => void;
 }) {
-  const customAgents = useAgentsStore((s) => s.customAgents);
-  void customAgents;
-
   return (
     <div
       onPointerDown={onHeaderPointerDown}
       className="relative flex h-11 shrink-0 cursor-grab items-center justify-between gap-2 border-b border-border/60 px-3 active:cursor-grabbing"
     >
       <div className="flex min-w-0 items-center gap-1.5">
-        <AgentSwitcher isMiniWindow />
+        <MiniAutoApproveToggle />
         {messages !== undefined ? (
           <ContextIndicator messages={messages} />
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {isBusy ? (
-          <span className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
-            <Spinner className="size-2.5" />
-            <span className="max-w-32 truncate">{step ?? "Thinking…"}</span>
-          </span>
+          <>
+            <span className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+              <Spinner className="size-2.5" />
+              <span className="max-w-24 truncate">{step ?? "Thinking…"}</span>
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={onStop}
+              className="h-6 gap-1.5 px-2 text-[10px]"
+              title="Stop agent"
+            >
+              <HugeiconsIcon icon={CancelCircleIcon} size={11} strokeWidth={1.8} />
+              Stop
+            </Button>
+          </>
         ) : null}
         <SessionPicker />
         <Button
@@ -308,6 +323,23 @@ function Header({
           <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
         </Button>
       </div>
+    </div>
+  );
+}
+
+function MiniAutoApproveToggle() {
+  const enabled = usePreferencesStore((s) => s.agentAutoApprove);
+  return (
+    <div
+      data-no-drag
+      className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/70 px-2 py-1"
+      title="Auto-approve AI tool actions"
+    >
+      <span className="text-[10.5px] text-muted-foreground">Auto</span>
+      <Switch
+        checked={enabled}
+        onCheckedChange={(v) => void setAgentAutoApprove(v)}
+      />
     </div>
   );
 }

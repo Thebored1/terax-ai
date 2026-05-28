@@ -476,7 +476,7 @@ const UserMessageActions = memo(function UserMessageActions({
 }) {
   const [busy, setBusy] = useState(false);
   const canRestore = !!snapshot && !!workspaceRoot;
-  const onRestore = useCallback(async () => {
+  const onRedo = useCallback(async () => {
     if (busy || !snapshot || !workspaceRoot) return;
     setBusy(true);
     try {
@@ -485,13 +485,17 @@ const UserMessageActions = memo(function UserMessageActions({
         new CustomEvent("terax:snapshot-restored", { detail: result }),
       );
       truncateActiveSessionBeforeMessage(messageId);
+      const ok = await sendMessage(rawText);
+      if (!ok) {
+        window.alert("Redo failed: unable to send message in active session.");
+      }
     } catch (e) {
-      console.warn("[terax] snapshot_restore failed:", e);
-      window.alert(`Restore failed: ${String(e)}`);
+      console.warn("[terax] snapshot_restore + redo failed:", e);
+      window.alert(`Redo failed: ${String(e)}`);
     } finally {
       setBusy(false);
     }
-  }, [busy, messageId, snapshot, workspaceRoot]);
+  }, [busy, messageId, rawText, snapshot, workspaceRoot]);
 
   const onEdit = useCallback(async () => {
     if (busy || !snapshot || !workspaceRoot) return;
@@ -523,12 +527,12 @@ const UserMessageActions = memo(function UserMessageActions({
       <span className="px-1">{time}</span>
       <button
         type="button"
-        onClick={onRestore}
+        onClick={onRedo}
         disabled={!canRestore || busy}
         className="rounded-md p-1.5 transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-35"
         title={
           snapshot
-            ? `Restore to this point (${snapshot.fileCount} files)`
+            ? `Redo from this point — restore & rerun prompt (${snapshot.fileCount} files)`
             : "No checkpoint was created for this message"
         }
       >

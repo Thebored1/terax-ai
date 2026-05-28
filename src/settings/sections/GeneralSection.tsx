@@ -21,6 +21,7 @@ import {
   TERMINAL_FONT_SIZES,
   TERMINAL_SCROLLBACK_PRESETS,
   setAgentNotifications,
+  setAgentAutoApprove,
   setAutostart,
   setEditorAutoSave,
   setEditorAutoSaveDelay,
@@ -84,6 +85,7 @@ export function GeneralSection() {
   const terminalScrollback = usePreferencesStore((s) => s.terminalScrollback);
   const zoomLevel = usePreferencesStore((s) => s.zoomLevel);
   const agentNotifications = usePreferencesStore((s) => s.agentNotifications);
+  const agentAutoApprove = usePreferencesStore((s) => s.agentAutoApprove);
 
   useEffect(() => {
     let alive = true;
@@ -326,6 +328,15 @@ export function GeneralSection() {
           <Switch
             checked={agentNotifications}
             onCheckedChange={(v) => void setAgentNotifications(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Auto-approve tool actions"
+          description="Automatically approve AI file/shell tool calls without prompting. Use with caution."
+        >
+          <Switch
+            checked={agentAutoApprove}
+            onCheckedChange={(v) => void setAgentAutoApprove(v)}
           />
         </SettingRow>
       </div>

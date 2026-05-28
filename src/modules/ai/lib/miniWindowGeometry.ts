@@ -1,9 +1,11 @@
 export type Geom = { x: number; y: number; w: number; h: number };
 export type Viewport = { vw: number; vh: number };
 export type ResizeDir = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
+export type SnapSide = "left" | "right";
 
 export const MIN_W = 400;
 export const MIN_H = 280;
+export const EDGE_SNAP_THRESHOLD = 28;
 
 const MARGIN_X = 16;
 const BOTTOM_GAP = 96;
@@ -34,6 +36,25 @@ export function clampGeom(g: Geom, vp: Viewport): Geom {
 
 export function applyDrag(start: Geom, dx: number, dy: number, vp: Viewport): Geom {
   return clampGeom({ ...start, x: start.x + dx, y: start.y + dy }, vp);
+}
+
+export function snapToEdges(g: Geom, vp: Viewport, threshold = EDGE_SNAP_THRESHOLD): Geom {
+  const c = clampGeom(g, vp);
+  const maxX = Math.max(0, vp.vw - c.w);
+  const maxY = Math.max(0, vp.vh - c.h);
+  let x = c.x;
+  let y = c.y;
+  if (x <= threshold) x = 0;
+  else if (Math.abs(maxX - x) <= threshold) x = maxX;
+  if (y <= threshold) y = 0;
+  else if (Math.abs(maxY - y) <= threshold) y = maxY;
+  return { ...c, x, y };
+}
+
+export function snapToSide(g: Geom, vp: Viewport, side: SnapSide): Geom {
+  const c = clampGeom(g, vp);
+  const x = side === "left" ? 0 : Math.max(0, vp.vw - c.w);
+  return { ...c, x };
 }
 
 export function applyResize(
