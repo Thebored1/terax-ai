@@ -17,14 +17,15 @@ Terax is a lightweight open-source terminal (ADE) built on Tauri 2 + Rust and Re
 
 ## What Changed In This Fork
 
-- `Ctrl/Cmd+I` is now a focus toggle for AI workflow:
-  - opens AI and focuses input when closed
-  - focuses AI input when panel is open but not focused
-  - returns focus to active work pane when AI input is focused
+- `Ctrl/Cmd+I` is now a focus toggle for AI workflow (open + focus AI input, or return focus to active pane).
 - Added automatic AI conversation checkpoints before user prompts with restore support.
+- Added checkpoint **Redo**: restores to that prompt checkpoint, truncates after it, and re-runs the same prompt.
 - Added live model fetching for provider-backed model pickers where supported.
 - Added OpenCode Zen as a provider option under OpenAI-compatible flow.
-- Added user-message restore/edit actions; removed the unused copy action icon.
+- Added user-message edit action and removed the unused copy action icon.
+- Added `Auto-approve tool actions` toggle (Settings -> General -> Agents) and mini-window header toggle.
+- Added mini-window header `Stop` button while the agent is running.
+- Improved mini-window drag behavior with edge snapping.
 
 ## Screenshots
 
