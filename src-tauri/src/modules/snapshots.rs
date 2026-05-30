@@ -1,4 +1,4 @@
-use std::collections::{hash_map::DefaultHasher, HashSet};
+use std::collections::{hash_map::DefaultHasher, HashSet, VecDeque};
 use std::ffi::OsStr;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -17,6 +17,7 @@ use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 const MANIFEST: &str = "manifest.json";
 const NON_GIT_EXCLUDE_DIRS: &[&str] = &[
     ".git",
+    "AppData",
     "node_modules",
     "dist",
     "target",
@@ -24,6 +25,7 @@ const NON_GIT_EXCLUDE_DIRS: &[&str] = &[
     ".turbo",
     ".cache",
 ];
+const NON_GIT_MAX_FILES: usize = 20_000;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -410,39 +412,53 @@ fn resolve_workspace_local_root(
 
 fn visible_files_non_git(root: &Path) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
-    collect_visible_files_non_git(root, root, &mut out)?;
+    collect_visible_files_non_git(root, &mut out)?;
     out.sort();
     out.dedup();
     Ok(out)
 }
 
-fn collect_visible_files_non_git(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
-    let entries = fs::read_dir(dir).map_err(|e| e.to_string())?;
-    for entry in entries {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        let meta = fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
-        if meta.file_type().is_symlink() {
-            continue;
-        }
-        if meta.is_dir() {
-            if NON_GIT_EXCLUDE_DIRS.iter().any(|d| *d == name) {
+fn collect_visible_files_non_git(root: &Path, out: &mut Vec<String>) -> Result<(), String> {
+    let mut q = VecDeque::new();
+    q.push_back(root.to_path_buf());
+    while let Some(dir) = q.pop_front() {
+        let entries = match fs::read_dir(&dir) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let meta = match fs::symlink_metadata(&path) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if meta.file_type().is_symlink() {
                 continue;
             }
-            collect_visible_files_non_git(root, &path, out)?;
-            continue;
+            if meta.is_dir() {
+                if NON_GIT_EXCLUDE_DIRS.iter().any(|d| *d == name) {
+                    continue;
+                }
+                q.push_back(path);
+                continue;
+            }
+            if !meta.is_file() {
+                continue;
+            }
+            let rel = match path.strip_prefix(root) {
+                Ok(v) => v.to_string_lossy().replace('\\', "/"),
+                Err(_) => continue,
+            };
+            if rel.is_empty() || !is_safe_pathspec(&rel) {
+                continue;
+            }
+            out.push(rel);
+            if out.len() >= NON_GIT_MAX_FILES {
+                return Ok(());
+            }
         }
-        if !meta.is_file() {
-            continue;
-        }
-        let rel = path.strip_prefix(root).map_err(|e| e.to_string())?;
-        let rel = rel.to_string_lossy().replace('\\', "/");
-        if rel.is_empty() || !is_safe_pathspec(&rel) {
-            continue;
-        }
-        out.push(rel);
     }
     Ok(())
 }
