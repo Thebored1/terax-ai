@@ -327,7 +327,9 @@ export function AiComposerProvider({ children }: ProviderProps) {
         } catch (e) {
           console.warn("[terax] snapshot_create failed:", e);
           window.dispatchEvent(
-            new CustomEvent("terax:snapshot-created", { detail: null }),
+            new CustomEvent("terax:snapshot-created", {
+              detail: { ok: false, error: String(e) },
+            }),
           );
         }
       })();

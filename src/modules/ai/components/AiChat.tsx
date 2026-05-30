@@ -212,6 +212,7 @@ export function AiChatView({
     (s) => s.live.getWorkspaceRoot() ?? s.live.getCwd(),
   );
   const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
+  const [checkpointReason, setCheckpointReason] = useState<string | null>(null);
   const showContinue =
     !isBusy && hitStepCap && lastMessage?.role === "assistant";
 
@@ -223,6 +224,7 @@ export function AiChatView({
   useEffect(() => {
     if (!sessionId || !workspaceRoot) {
       setSnapshots([]);
+      setCheckpointReason(null);
       return;
     }
     let cancelled = false;
@@ -231,10 +233,30 @@ export function AiChatView({
         .then((items) => {
           if (!cancelled) setSnapshots(items);
         })
-        .catch((e) => console.warn("[terax] snapshot_list failed:", e));
+        .catch((e) => {
+          console.warn("[terax] snapshot_list failed:", e);
+          if (!cancelled) {
+            setCheckpointReason(`snapshot_list failed: ${String(e)}`);
+          }
+        });
     };
     load();
-    const onCreated = () => load();
+    const onCreated = (evt: Event) => {
+      const detail = (evt as CustomEvent<unknown>).detail as
+        | SnapshotMeta
+        | { ok?: boolean; error?: string }
+        | null
+        | undefined;
+      if (detail && typeof detail === "object" && "id" in detail) {
+        setCheckpointReason(null);
+        setSnapshots((prev) => [...prev, detail]);
+      } else if (detail && detail.ok === false) {
+        setCheckpointReason(detail.error ?? "checkpoint creation failed");
+      } else {
+        setCheckpointReason(null);
+      }
+      load();
+    };
     window.addEventListener("terax:snapshot-created", onCreated);
     return () => {
       cancelled = true;
@@ -268,6 +290,7 @@ export function AiChatView({
                 key={m.id}
                 message={m}
                 snapshot={snapshot}
+                checkpointReason={!snapshot && m.role === "user" ? checkpointReason : null}
                 workspaceRoot={workspaceRoot}
                 onApproval={onApproval}
                 streaming={m.id === streamingMessageId}
@@ -367,12 +390,14 @@ const ContinueRow = memo(function ContinueRow({
 const RenderedMessage = memo(function RenderedMessage({
   message,
   snapshot,
+  checkpointReason,
   workspaceRoot,
   onApproval,
   streaming,
 }: {
   message: UIMessage;
   snapshot: SnapshotMeta | null;
+  checkpointReason: string | null;
   workspaceRoot: string | null;
   onApproval: (id: string, approved: boolean) => void;
   streaming: boolean;
@@ -413,6 +438,7 @@ const RenderedMessage = memo(function RenderedMessage({
         <UserMessageActions
           messageId={message.id}
           snapshot={snapshot}
+          checkpointReason={checkpointReason}
           workspaceRoot={workspaceRoot}
           rawText={rawText}
         />
@@ -466,11 +492,13 @@ const RenderedMessage = memo(function RenderedMessage({
 const UserMessageActions = memo(function UserMessageActions({
   messageId,
   snapshot,
+  checkpointReason,
   workspaceRoot,
   rawText,
 }: {
   messageId: string;
   snapshot: SnapshotMeta | null;
+  checkpointReason: string | null;
   workspaceRoot: string | null;
   rawText: string;
 }) {
@@ -520,7 +548,9 @@ const UserMessageActions = memo(function UserMessageActions({
         hour: "numeric",
         minute: "2-digit",
       })
-    : "No checkpoint";
+    : checkpointReason
+      ? `No checkpoint (${checkpointReason})`
+      : "No checkpoint";
 
   return (
     <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-muted-foreground opacity-80">
@@ -533,7 +563,9 @@ const UserMessageActions = memo(function UserMessageActions({
         title={
           snapshot
             ? `Redo from this point — restore & rerun prompt (${snapshot.fileCount} files)`
-            : "No checkpoint was created for this message"
+            : checkpointReason
+              ? `No checkpoint: ${checkpointReason}`
+              : "No checkpoint was created for this message"
         }
       >
         <HugeiconsIcon
@@ -550,7 +582,9 @@ const UserMessageActions = memo(function UserMessageActions({
         title={
           snapshot
             ? `Edit message — restore & prepopulate (${snapshot.fileCount} files)`
-            : "No checkpoint was created for this message"
+            : checkpointReason
+              ? `No checkpoint: ${checkpointReason}`
+              : "No checkpoint was created for this message"
         }
       >
         <HugeiconsIcon icon={PencilEdit02Icon} size={13} strokeWidth={1.8} />
