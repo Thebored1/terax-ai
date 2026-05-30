@@ -18,7 +18,6 @@ import { SLASH_COMMANDS } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
-import { AgentSwitcher } from "./AgentSwitcher";
 import { FilePickerContent } from "./FilePicker";
 import { SnippetPickerContent, type PickerItem } from "./SnippetPicker";
 
@@ -214,7 +213,10 @@ export function AiInputBar() {
       : null;
 
   return (
-    <div className="shrink-0 border-t border-border/60 bg-card/40 px-3 py-2">
+    <div
+      data-ai-input-bar
+      className="shrink-0 border-t border-border/60 bg-card/40 px-3 py-2"
+    >
       <div
         className={cn(
           "flex flex-col gap-1.5 rounded-lg px-1 py-1",
@@ -286,14 +288,13 @@ export function AiInputBar() {
                     c.submit();
                   }
                 }}
-                placeholder="Ask Terax anything   -   # for snippets and commands, @ for files"
-                rows={1}
+                placeholder="Ask Terax anything"
+                rows={2}
                 className={cn(
-                  "max-h-40 flex-1 resize-none bg-transparent text-[13px] leading-relaxed outline-none",
+                  "max-h-[220px] min-h-12 flex-1 resize-y bg-transparent text-[13px] leading-relaxed outline-none",
                   "placeholder:text-muted-foreground/60",
                 )}
               />
-              <AgentSwitcher />
             </div>
           </PopoverAnchor>
           {fileTrigger ? (
@@ -478,7 +479,7 @@ function extOf(name: string): string {
 function autoresize(el: HTMLTextAreaElement | null) {
   if (!el) return;
   el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
 }
 
 export type AiInputBarProps = { tabId: number };

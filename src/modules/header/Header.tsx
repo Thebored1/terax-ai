@@ -20,6 +20,7 @@ import {
   GridViewIcon,
   LayoutTwoColumnIcon,
   LayoutTwoRowIcon,
+  Message01Icon,
   Settings01Icon,
   SidebarLeftIcon,
 } from "@hugeicons/core-free-icons";
@@ -44,6 +45,9 @@ type Props = {
   /** Promote a preview (transient) tab to persistent. */
   onPin: (id: number) => void;
   onToggleSidebar: () => void;
+  onToggleAiSidebar: () => void;
+  aiSidebarOpen: boolean;
+  hasComposer: boolean;
   onSplit: (dir: "row" | "col") => void;
   /** Active tab is a terminal and below the per-tab pane cap. */
   canSplit: boolean;
@@ -68,6 +72,9 @@ export function Header({
   onClose,
   onPin,
   onToggleSidebar,
+  onToggleAiSidebar,
+  aiSidebarOpen,
+  hasComposer,
   onSplit,
   canSplit,
   onActivateAgent,
@@ -111,6 +118,19 @@ export function Header({
       title="Settings"
     >
       <HugeiconsIcon icon={Settings01Icon} size={15} strokeWidth={1.75} />
+    </Button>
+  );
+  const aiSidebarButton = (
+    <Button
+      onClick={onToggleAiSidebar}
+      title={hasComposer ? "Toggle AI sidebar" : "Configure AI models"}
+      variant="ghost"
+      size="icon"
+      className={`size-7 shrink-0 rounded-md hover:bg-accent hover:text-foreground ${
+        aiSidebarOpen ? "bg-accent text-foreground" : "text-muted-foreground"
+      }`}
+    >
+      <HugeiconsIcon icon={Message01Icon} size={15} strokeWidth={1.75} />
     </Button>
   );
   return (
@@ -212,11 +232,17 @@ export function Header({
             onActivate={onActivateAgent}
             onActivateLocal={onActivateLocalAgent}
           />
+          {aiSidebarButton}
           {settingsButton}
         </>
       )}
 
-      {!IS_MAC && settingsButton}
+      {!IS_MAC && (
+        <>
+          {aiSidebarButton}
+          {settingsButton}
+        </>
+      )}
 
       {USE_CUSTOM_WINDOW_CONTROLS && (
         <>

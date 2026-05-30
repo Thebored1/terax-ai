@@ -198,16 +198,9 @@ function createSlot(): Slot {
       return false;
     }
     if (isTerminalPaste(event)) {
-      if (event.type === "keydown") {
-        void navigator.clipboard
-          .readText()
-          .then((text) => {
-            if (text) slot.term.paste(text);
-          })
-          .catch(() => {});
-      }
-      event.preventDefault();
-      return false;
+      // Let the browser's native paste pipeline handle clipboard data.
+      // This avoids `navigator.clipboard.readText()` permission prompts.
+      return true;
     }
     return true;
   });

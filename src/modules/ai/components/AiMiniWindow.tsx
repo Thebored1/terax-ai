@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import {
   Context,
   ContextContent,
@@ -6,7 +7,6 @@ import {
   ContextContentHeader,
   ContextTrigger,
 } from "@/components/ai-elements/context";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
   DropdownMenu,
@@ -23,23 +23,22 @@ import {
   AlertCircleIcon,
   ArrowDown01Icon,
   CancelCircleIcon,
-  Cancel01Icon,
   Delete02Icon,
   FilterIcon,
   TerminalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { motion } from "motion/react";
 import { useEffect, useMemo } from "react";
 import { estimateCost, getModel, getModelContextLimit } from "../config";
-import type { ResizeDir } from "../lib/miniWindowGeometry";
 import type { SessionMeta } from "../lib/sessions";
-import { useMiniWindowGeometry } from "../lib/useMiniWindowGeometry";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setAgentAutoApprove } from "@/modules/settings/store";
 import { usePlanStore } from "../store/planStore";
 import { AiChatView } from "./AiChat";
+import { AgentSwitcher } from "./AgentSwitcher";
+import { AiInputBar } from "./AiInputBar";
+import { AiStatusBarControls } from "./AiStatusBarControls";
 import { PlanDiffReview } from "./PlanDiffReview";
 import { TodoStrip } from "./TodoStrip";
 
@@ -67,13 +66,6 @@ const SUGGESTIONS = [
 export function AiMiniWindow() {
   const closeMini = useChatStore((s) => s.closeMini);
   const sessionId = useChatStore((s) => s.activeSessionId);
-  const openPanel = useChatStore((s) => s.openPanel);
-  const expandToPanel = () => {
-    closeMini();
-    openPanel();
-  };
-
-  const { ref, onHeaderPointerDown, startResize } = useMiniWindowGeometry();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -89,88 +81,32 @@ export function AiMiniWindow() {
   }, [closeMini]);
 
   return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 12, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 12, scale: 0.98 }}
-      transition={{ type: "spring", stiffness: 320, damping: 32 }}
+    <div
       data-ai-mini-window
       className={cn(
-        "no-scrollbar-deep fixed z-40 flex flex-col overflow-hidden",
-        "rounded-2xl border border-border/60 bg-card text-[12px]",
-        "shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset,0_24px_48px_-12px_rgba(0,0,0,0.45),0_8px_16px_-8px_rgba(0,0,0,0.3)]",
-        "ring-1 ring-black/5 dark:ring-white/5",
+        "no-scrollbar-deep relative flex h-full min-h-0 flex-col overflow-hidden bg-card text-[12px]",
       )}
     >
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-foreground/[0.03] to-transparent"
       />
-      {RESIZE_DIRS.map((dir) => (
-        <ResizeHandle key={dir} dir={dir} onPointerDown={startResize(dir)} />
-      ))}
       {sessionId ? (
-        <Body
-          sessionId={sessionId}
-          onClose={closeMini}
-          onExpand={expandToPanel}
-          onHeaderPointerDown={onHeaderPointerDown}
-        />
+        <Body sessionId={sessionId} />
       ) : (
-        <EmptyShell
-          onClose={closeMini}
-          onExpand={expandToPanel}
-          onHeaderPointerDown={onHeaderPointerDown}
-        />
+        <EmptyShell />
       )}
       <PlanDiffReview />
-    </motion.div>
-  );
-}
-
-const RESIZE_HANDLE_CLASS: Record<ResizeDir, string> = {
-  n: "top-0 left-3 right-3 h-1.5 cursor-ns-resize",
-  s: "bottom-0 left-3 right-3 h-1.5 cursor-ns-resize",
-  w: "top-3 bottom-3 left-0 w-1.5 cursor-ew-resize",
-  e: "top-3 bottom-3 right-0 w-1.5 cursor-ew-resize",
-  nw: "top-0 left-0 size-3 cursor-nwse-resize",
-  ne: "top-0 right-0 size-3 cursor-nesw-resize",
-  sw: "bottom-0 left-0 size-3 cursor-nesw-resize",
-  se: "bottom-0 right-0 size-3 cursor-nwse-resize",
-};
-
-const RESIZE_DIRS: ResizeDir[] = ["n", "s", "w", "e", "nw", "ne", "sw", "se"];
-
-function ResizeHandle({
-  dir,
-  onPointerDown,
-}: {
-  dir: ResizeDir;
-  onPointerDown: (e: React.PointerEvent) => void;
-}) {
-  return (
-    <div
-      data-no-drag
-      onPointerDown={onPointerDown}
-      className={cn("absolute z-50 touch-none select-none", RESIZE_HANDLE_CLASS[dir])}
-    />
+    </div>
   );
 }
 
 function Body({
   sessionId,
-  onClose,
-  onExpand,
-  onHeaderPointerDown,
 }: {
   sessionId: string;
-  onClose: () => void;
-  onExpand: () => void;
-  onHeaderPointerDown: (e: React.PointerEvent) => void;
 }) {
   const focusInput = useChatStore((s) => s.focusInput);
-  const step = useChatStore((s) => s.agentMeta.step);
 
   const chat = useMemo(() => getOrCreateChat(sessionId), [sessionId]);
   const helpers = useChat<UIMessage>({ chat });
@@ -179,15 +115,7 @@ function Body({
 
   return (
     <>
-      <Header
-        step={step}
-        isBusy={isBusy}
-        onStop={() => void helpers.stop()}
-        onClose={onClose}
-        onExpand={onExpand}
-        messages={helpers.messages}
-        onHeaderPointerDown={onHeaderPointerDown}
-      />
+      <Header messages={helpers.messages} />
 
       <PlanModeStrip />
 
@@ -209,6 +137,13 @@ function Body({
       </div>
 
       <TodoStrip sessionId={sessionId} />
+      <div className="shrink-0 border-t border-border/60">
+        <AiInputBar />
+        <ComposerDockControls
+          isBusy={isBusy}
+          onStop={() => void helpers.stop()}
+        />
+      </div>
     </>
   );
 }
@@ -237,25 +172,10 @@ function PlanModeStrip() {
   );
 }
 
-function EmptyShell({
-  onClose,
-  onExpand,
-  onHeaderPointerDown,
-}: {
-  onClose: () => void;
-  onExpand: () => void;
-  onHeaderPointerDown: (e: React.PointerEvent) => void;
-}) {
+function EmptyShell() {
   return (
     <>
-      <Header
-        step={null}
-        isBusy={false}
-        onStop={() => undefined}
-        onClose={onClose}
-        onExpand={onExpand}
-        onHeaderPointerDown={onHeaderPointerDown}
-      />
+      <Header messages={[]} />
       <div className="flex flex-1 items-center justify-center text-[11px] text-muted-foreground">
         Loading sessions…
       </div>
@@ -263,83 +183,48 @@ function EmptyShell({
   );
 }
 
-function Header({
-  step,
-  isBusy,
-  onStop,
-  onClose,
-  messages,
-  onHeaderPointerDown,
-}: {
-  step: string | null;
-  isBusy: boolean;
-  onStop: () => void;
-  onClose: () => void;
-  onExpand: () => void;
-  messages?: UIMessage[];
-  onHeaderPointerDown: (e: React.PointerEvent) => void;
-}) {
+function Header({ messages }: { messages: UIMessage[] }) {
   return (
-    <div
-      onPointerDown={onHeaderPointerDown}
-      className="relative flex h-11 shrink-0 cursor-grab items-center justify-between gap-2 border-b border-border/60 px-3 active:cursor-grabbing"
-    >
+    <div className="shrink-0 border-b border-border/60 px-3 py-2">
       <div className="flex min-w-0 items-center gap-1.5">
-        <MiniAutoApproveToggle />
-        {messages !== undefined ? (
-          <ContextIndicator messages={messages} />
-        ) : null}
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        {isBusy ? (
-          <>
-            <span className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
-              <Spinner className="size-2.5" />
-              <span className="max-w-24 truncate">{step ?? "Thinking…"}</span>
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={onStop}
-              className="h-6 gap-1.5 px-2 text-[10px]"
-              title="Stop agent"
-            >
-              <HugeiconsIcon icon={CancelCircleIcon} size={11} strokeWidth={1.8} />
-              Stop
-            </Button>
-          </>
-        ) : null}
         <SessionPicker />
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          onClick={onClose}
-          className="size-5"
-          aria-label="Close"
-          title="Close (Esc)"
-        >
-          <HugeiconsIcon icon={Cancel01Icon} size={11} strokeWidth={1.75} />
-        </Button>
+        <span className="flex-1" />
+        <ContextIndicator messages={messages} />
       </div>
     </div>
   );
 }
 
-function MiniAutoApproveToggle() {
-  const enabled = usePreferencesStore((s) => s.agentAutoApprove);
+function ComposerDockControls({
+  isBusy,
+  onStop,
+}: {
+  isBusy: boolean;
+  onStop: () => void;
+}) {
   return (
-    <div
-      data-no-drag
-      className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/70 px-2 py-1"
-      title="Auto-approve AI tool actions"
-    >
-      <span className="text-[10.5px] text-muted-foreground">Auto</span>
-      <Switch
-        checked={enabled}
-        onCheckedChange={(v) => void setAgentAutoApprove(v)}
-      />
+    <div className="flex min-w-0 items-center gap-1.5 border-t border-border/50 px-3 py-1.5">
+      <AiStatusBarControls mode="attach-only" />
+      <AgentSwitcher isMiniWindow />
+      <MiniAutoApproveToggle />
+      <AiStatusBarControls mode="model-only" />
+      <span className="flex-1" />
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onClick={onStop}
+        disabled={!isBusy}
+        className="h-6 shrink-0 gap-1.5 px-2 text-[10px]"
+        title={isBusy ? "Stop agent" : "Agent idle"}
+      >
+        {isBusy ? (
+          <Spinner className="size-2.5" />
+        ) : (
+          <HugeiconsIcon icon={CancelCircleIcon} size={11} strokeWidth={1.8} />
+        )}
+        Stop
+      </Button>
     </div>
   );
 }
@@ -395,7 +280,7 @@ function ContextIndicator({ messages }: { messages: UIMessage[] }) {
 
   return (
     <Context usedTokens={used} maxTokens={max} modelId={modelId}>
-      <ContextTrigger className="h-6 gap-1 px-0 text-[10.5px]" />
+      <ContextTrigger className="h-6 shrink-0 gap-1 px-1 text-[10.5px]" />
       <ContextContent className="w-64 text-[11px]">
         <ContextContentHeader />
         <ContextContentBody>
@@ -409,15 +294,15 @@ function ContextIndicator({ messages }: { messages: UIMessage[] }) {
               {formatTokens(used)}
             </span>
           </div>
-          {lastCached > 0 && (
+          {lastCached > 0 ? (
             <div className="flex items-center justify-between text-muted-foreground">
               <span>Of which cached</span>
               <span className="font-mono text-foreground">
                 {formatTokens(lastCached)}
               </span>
             </div>
-          )}
-          {reported > 0 && (
+          ) : null}
+          {reported > 0 ? (
             <>
               <div className="mt-1.5 flex items-center justify-between text-muted-foreground">
                 <span>Session input</span>
@@ -431,22 +316,22 @@ function ContextIndicator({ messages }: { messages: UIMessage[] }) {
                   {formatTokens(tokens.outputTokens)}
                 </span>
               </div>
-              {tokens.cachedInputTokens > 0 && (
+              {tokens.cachedInputTokens > 0 ? (
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span>Cache hit</span>
                   <span className="font-mono text-foreground">{cacheRate}%</span>
                 </div>
-              )}
-              {cost != null && (
+              ) : null}
+              {cost != null ? (
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span>Session cost</span>
                   <span className="font-mono text-foreground">
                     ${cost.toFixed(cost < 0.01 ? 4 : cost < 1 ? 3 : 2)}
                   </span>
                 </div>
-              )}
+              ) : null}
             </>
-          )}
+          ) : null}
           <div className="flex items-center justify-between text-muted-foreground">
             <span>Window</span>
             <span className="font-mono text-foreground">
@@ -463,6 +348,23 @@ function ContextIndicator({ messages }: { messages: UIMessage[] }) {
         </ContextContentFooter>
       </ContextContent>
     </Context>
+  );
+}
+
+function MiniAutoApproveToggle() {
+  const enabled = usePreferencesStore((s) => s.agentAutoApprove);
+  return (
+    <div
+      data-no-drag
+      className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card/70 px-2 py-1"
+      title="Auto-approve AI tool actions"
+    >
+      <span className="text-[10.5px] text-muted-foreground">Auto</span>
+      <Switch
+        checked={enabled}
+        onCheckedChange={(v) => void setAgentAutoApprove(v)}
+      />
+    </div>
   );
 }
 

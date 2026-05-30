@@ -21,8 +21,6 @@ import { useManagedAgentsStore } from "@/modules/agents/store/managedAgentsStore
 import { Toaster } from "@/components/ui/sonner";
 import {
   AgentRunBridge,
-  AiInputBar,
-  AiInputBarConnect,
   AiMiniWindow,
   getAllKeys,
   hasAnyKey,
@@ -113,7 +111,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { SearchAddon } from "@xterm/addon-search";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
@@ -130,6 +128,10 @@ const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 480;
 const SIDEBAR_WIDTH_STORAGE_KEY = "terax.sidebar.width";
 const SIDEBAR_VIEW_STORAGE_KEY = "terax.sidebar.view";
+const AI_SIDEBAR_DEFAULT_WIDTH = 560;
+const AI_SIDEBAR_MIN_WIDTH = 520;
+const AI_SIDEBAR_MAX_WIDTH = 820;
+const AI_SIDEBAR_WIDTH_STORAGE_KEY = "terax.ai.sidebar.width";
 
 function clampSidebarWidth(width: number): number {
   return Math.min(
@@ -158,6 +160,25 @@ function readSidebarView(): SidebarViewId {
     // ignore
   }
   return "explorer";
+}
+
+function clampAiSidebarWidth(width: number): number {
+  return Math.min(
+    AI_SIDEBAR_MAX_WIDTH,
+    Math.max(AI_SIDEBAR_MIN_WIDTH, Math.round(width)),
+  );
+}
+
+function readAiSidebarWidth(): number {
+  try {
+    const stored = window.localStorage.getItem(AI_SIDEBAR_WIDTH_STORAGE_KEY);
+    const parsed = stored ? Number.parseInt(stored, 10) : NaN;
+    return Number.isFinite(parsed)
+      ? clampAiSidebarWidth(parsed)
+      : AI_SIDEBAR_DEFAULT_WIDTH;
+  } catch {
+    return AI_SIDEBAR_DEFAULT_WIDTH;
+  }
 }
 
 export default function App() {
@@ -218,6 +239,8 @@ export default function App() {
   const sidebarRef = useRef<PanelImperativeHandle | null>(null);
   const sidebarWidthRef = useRef(readSidebarWidth());
   const sidebarWidthWriteTimerRef = useRef(0);
+  const aiSidebarWidthRef = useRef(readAiSidebarWidth());
+  const aiSidebarWidthWriteTimerRef = useRef(0);
   const [sidebarView, setSidebarViewState] = useState<SidebarViewId>(readSidebarView);
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
@@ -264,10 +287,30 @@ export default function App() {
       }
     }, 200);
   }, []);
+  const persistAiSidebarWidth = useCallback((next: number) => {
+    aiSidebarWidthRef.current = next;
+    if (aiSidebarWidthWriteTimerRef.current) {
+      window.clearTimeout(aiSidebarWidthWriteTimerRef.current);
+    }
+    aiSidebarWidthWriteTimerRef.current = window.setTimeout(() => {
+      aiSidebarWidthWriteTimerRef.current = 0;
+      try {
+        window.localStorage.setItem(
+          AI_SIDEBAR_WIDTH_STORAGE_KEY,
+          String(aiSidebarWidthRef.current),
+        );
+      } catch {
+        // ignore storage errors
+      }
+    }, 120);
+  }, []);
   useEffect(() => {
     return () => {
       if (sidebarWidthWriteTimerRef.current) {
         window.clearTimeout(sidebarWidthWriteTimerRef.current);
+      }
+      if (aiSidebarWidthWriteTimerRef.current) {
+        window.clearTimeout(aiSidebarWidthWriteTimerRef.current);
       }
     };
   }, []);
@@ -388,6 +431,7 @@ export default function App() {
   const miniOpen = useChatStore((s) => s.mini.open);
   const activeSessionId = useChatStore((s) => s.activeSessionId);
   const openMini = useChatStore((s) => s.openMini);
+  const toggleMini = useChatStore((s) => s.toggleMini);
   const focusInput = useChatStore((s) => s.focusInput);
   const openPanel = useChatStore((s) => s.openPanel);
   const panelOpen = useChatStore((s) => s.panelOpen);
@@ -419,6 +463,7 @@ export default function App() {
     (openaiCompatibleBaseURL.trim().length > 0 &&
       openaiCompatibleModelId.trim().length > 0);
   const hasComposer = hasAnyKey(apiKeys) || hasLocalModel;
+  const aiSidebarBootedRef = useRef(false);
 
   const [keysLoaded, setKeysLoaded] = useState(false);
   useEffect(() => {
@@ -450,6 +495,13 @@ export default function App() {
     if (!prefsHydrated) return;
     setSelectedModelId(prefDefaultModel);
   }, [prefsHydrated, prefDefaultModel, setSelectedModelId]);
+
+  useEffect(() => {
+    if (aiSidebarBootedRef.current) return;
+    if (!keysLoaded || !hasComposer) return;
+    aiSidebarBootedRef.current = true;
+    openMini();
+  }, [keysLoaded, hasComposer, openMini]);
 
   const hydrateSessions = useChatStore((s) => s.hydrateSessions);
   useEffect(() => {
@@ -761,6 +813,14 @@ export default function App() {
     openPanel,
     focusInput,
   ]);
+
+  const toggleAiSidebar = useCallback(() => {
+    if (!hasComposer) {
+      void openSettingsWindow("models");
+      return;
+    }
+    toggleMini();
+  }, [hasComposer, toggleMini]);
 
   const attachSelection = useChatStore((s) => s.attachSelection);
 
@@ -1460,6 +1520,9 @@ export default function App() {
             onClose={handleClose}
             onPin={pinTab}
             onToggleSidebar={toggleSidebar}
+            onToggleAiSidebar={toggleAiSidebar}
+            aiSidebarOpen={miniOpen}
+            hasComposer={hasComposer}
             onSplit={splitActivePaneInActiveTab}
             canSplit={
               activeTerminalTab !== null &&
@@ -1521,31 +1584,41 @@ export default function App() {
               <ResizableHandle withHandle />
               <ResizablePanel id="workspace" defaultSize="78%" minSize="30%">
                 <div className="flex h-full min-h-0 flex-col">
-                  <div className="relative min-h-0 flex-1">
-                    {workspaceSurface}
+                  <div className="min-h-0 flex-1">
+                    {miniOpen && hasComposer ? (
+                      <ResizablePanelGroup
+                        orientation="horizontal"
+                        className="h-full min-h-0"
+                      >
+                        <ResizablePanel id="workspace-main" minSize="30%">
+                          <div className="relative h-full min-w-0">
+                            {workspaceSurface}
+                          </div>
+                        </ResizablePanel>
+                        <ResizableHandle withHandle />
+                        <ResizablePanel
+                          id="workspace-ai-sidebar"
+                          defaultSize={`${aiSidebarWidthRef.current}px`}
+                          minSize={`${AI_SIDEBAR_MIN_WIDTH}px`}
+                          maxSize={`${AI_SIDEBAR_MAX_WIDTH}px`}
+                          onResize={(size) => {
+                            if (size.inPixels > 0) {
+                              persistAiSidebarWidth(size.inPixels);
+                            }
+                          }}
+                        >
+                          <aside className="h-full min-w-[520px] border-l border-border/60 bg-card">
+                            <AiMiniWindow />
+                          </aside>
+                        </ResizablePanel>
+                      </ResizablePanelGroup>
+                    ) : (
+                      <div className="relative h-full min-w-0">
+                        {workspaceSurface}
+                      </div>
+                    )}
                   </div>
 
-                  {keysLoaded ? (
-                    <motion.div
-                      data-ai-input-bar
-                      initial={false}
-                      animate={{
-                        height: panelOpen ? "auto" : 0,
-                        opacity: panelOpen ? 1 : 0,
-                      }}
-                      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                      className="overflow-hidden"
-                      aria-hidden={!panelOpen}
-                    >
-                      {hasComposer ? (
-                        <AiInputBar />
-                      ) : (
-                        <AiInputBarConnect
-                          onAdd={() => void openSettingsWindow("models")}
-                        />
-                      )}
-                    </motion.div>
-                  ) : null}
                 </div>
               </ResizablePanel>
             </ResizablePanelGroup>
@@ -1558,7 +1631,6 @@ export default function App() {
             onCd={sendCd}
             onWorkspaceChange={switchWorkspace}
             onOpenMini={openMini}
-            hasComposer={hasComposer}
             privateActive={
               activeTab?.kind === "terminal" && activeTab.private === true
             }
@@ -1582,7 +1654,6 @@ export default function App() {
           ) : null}
 
           <AnimatePresence>
-            {miniOpen && hasComposer ? <AiMiniWindow key="ai-mini" /> : null}
             {askPopup ? (
               <SelectionAskAi
                 key="ask-ai-popup"

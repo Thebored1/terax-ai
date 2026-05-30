@@ -26,6 +26,8 @@ Terax is a lightweight open-source terminal (ADE) built on Tauri 2 + Rust and Re
 - Added `Auto-approve tool actions` toggle (Settings -> General -> Agents) and mini-window header toggle.
 - Added mini-window header `Stop` button while the agent is running.
 - Improved mini-window drag behavior with edge snapping.
+- Reworked AI mini window into a right-side resizable sidebar with a header toggle next to Settings.
+- Added compact sidebar controls layout with context usage indicator, attach/model controls, and stop action.
 
 ## Screenshots
 

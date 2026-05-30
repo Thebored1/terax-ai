@@ -327,7 +327,18 @@ pub async fn ai_http_request(
     let client = build_safe_client(allow_private, &[(host, safe_ips)])?;
 
     let req = build_request(&client, &method, parsed, headers, body)?;
-    let resp = req.send().await.map_err(|e| e.to_string())?;
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            if e.is_connect() && (url.contains("localhost") || url.contains("127.0.0.1")) {
+                return Err(format!(
+                    "Could not connect to local AI server at {}. Please ensure LM Studio or Ollama is running and the port is correct.",
+                    url
+                ));
+            }
+            return Err(e.to_string());
+        }
+    };
 
     let status = resp.status().as_u16();
     let headers = header_map_to_strings(resp.headers());
@@ -394,10 +405,15 @@ pub async fn ai_http_stream(
     let resp = match req.send().await {
         Ok(r) => r,
         Err(e) => {
+            let msg = if e.is_connect() && (url.contains("localhost") || url.contains("127.0.0.1")) {
+                format!("Could not connect to local AI server at {}. Please ensure LM Studio or Ollama is running and the port is correct.", url)
+            } else {
+                e.to_string()
+            };
             let _ = on_event.send(AiStreamEvent::Error {
-                message: e.to_string(),
+                message: msg.clone(),
             });
-            return Err(e.to_string());
+            return Err(msg);
         }
     };
 

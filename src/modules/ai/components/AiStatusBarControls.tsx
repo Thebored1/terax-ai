@@ -6,7 +6,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Kbd } from "@/components/ui/kbd";
-import { Spinner } from "@/components/ui/spinner";
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
@@ -32,7 +31,6 @@ import {
   Grok02Icon,
   MistralIcon,
   Message01Icon,
-  Mic01Icon,
   PlugIcon,
   ServerStack01Icon,
   Search01Icon,
@@ -96,12 +94,72 @@ export function AiOpenButton({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-export function AiStatusBarControls() {
+export function AiStatusBarControls({
+  mode = "status",
+}: {
+  mode?: "status" | "sidebar" | "attach-only" | "model-only";
+}) {
   const c = useComposer();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const openMini = useChatStore((s) => s.openMini);
   const miniOpen = useChatStore((s) => s.mini.open);
   const closePanel = useChatStore((s) => s.closePanel);
+
+  if (mode === "attach-only") {
+    return (
+      <>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept={ACCEPTED_FILES}
+          className="hidden"
+          onChange={(e) => {
+            void c.addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <IconBtn
+          title="Attach file or image"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={c.isBusy}
+        >
+          <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={2} />
+        </IconBtn>
+      </>
+    );
+  }
+
+  if (mode === "model-only") {
+    return <ModelDropdown compact />;
+  }
+
+  if (mode === "sidebar") {
+    return (
+      <div className="flex items-center gap-1.5 border-t border-border/50 px-3 py-1.5">
+        <span className="flex-1" />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept={ACCEPTED_FILES}
+          className="hidden"
+          onChange={(e) => {
+            void c.addFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <IconBtn
+          title="Attach file or image"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={c.isBusy}
+        >
+          <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={2} />
+        </IconBtn>
+        <ModelDropdown />
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-0.5">
@@ -124,36 +182,6 @@ export function AiStatusBarControls() {
       >
         <HugeiconsIcon icon={Add01Icon} size={13} strokeWidth={2} />
       </IconBtn>
-
-      {c.voice.supported && (
-        <IconBtn
-          title={
-            !c.voice.hasKey
-              ? "Voice needs an OpenAI key"
-              : c.voice.recording
-                ? "Stop & transcribe"
-                : c.voice.transcribing
-                  ? "Transcribing…"
-                  : "Voice input"
-          }
-          onClick={() =>
-            c.voice.recording ? c.voice.stop() : void c.voice.start()
-          }
-          disabled={c.isBusy || c.voice.transcribing || !c.voice.hasKey}
-          className={cn(
-            c.voice.recording &&
-            "bg-destructive/10 text-destructive hover:bg-destructive/15",
-          )}
-        >
-          {c.voice.recording ? (
-            <span className="size-2 animate-pulse rounded-full bg-destructive" />
-          ) : c.voice.transcribing ? (
-            <Spinner className="size-3" />
-          ) : (
-            <HugeiconsIcon icon={Mic01Icon} size={13} strokeWidth={1.75} />
-          )}
-        </IconBtn>
-      )}
 
       <ModelDropdown />
 
@@ -209,7 +237,7 @@ export function AiStatusBarControls() {
 
 type Tab = "all" | "favorites" | "recent";
 
-function ModelDropdown() {
+function ModelDropdown({ compact = false }: { compact?: boolean }) {
   const selected = useChatStore((s) => s.selectedModelId);
   const apiKeys = useChatStore((s) => s.apiKeys);
   const setSelected = useChatStore((s) => s.setSelectedModelId);
@@ -369,6 +397,7 @@ function ModelDropdown() {
           size="sm"
           className={cn(
             "h-5.5 gap-1 rounded-md px-1.5 my-1 text-xs hover:bg-accent hover:text-foreground",
+            compact && "max-w-[128px] justify-start",
             currentProviderHasKey
               ? "text-muted-foreground"
               : "text-amber-600 dark:text-amber-400",
@@ -379,7 +408,7 @@ function ModelDropdown() {
               : `${current.label} — no key configured`
           }
         >
-          {current.label}
+          <span className={cn(compact && "truncate")}>{current.label}</span>
           <HugeiconsIcon
             icon={ArrowDown01Icon}
             size={11}

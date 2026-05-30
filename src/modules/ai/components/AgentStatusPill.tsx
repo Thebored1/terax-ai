@@ -35,7 +35,7 @@ export function AgentStatusPill({ onClick }: Props) {
         title="Open AI log"
       >
         {icon}
-        <span className="max-w-[180px] truncate">{label}</span>
+        <span className="max-w-[180px] truncate whitespace-nowrap">{label}</span>
       </motion.button>
     </AnimatePresence>
   );
