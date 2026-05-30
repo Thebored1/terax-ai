@@ -1,4 +1,4 @@
-use std::collections::{hash_map::DefaultHasher, HashSet, VecDeque};
+use std::collections::{hash_map::DefaultHasher, HashSet};
 use std::ffi::OsStr;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -15,18 +15,6 @@ use crate::modules::git::utils::{canonical_dir, is_safe_pathspec, resolve_within
 use crate::modules::workspace::{WorkspaceEnv, WorkspaceRegistry};
 
 const MANIFEST: &str = "manifest.json";
-const NON_GIT_EXCLUDE_DIRS: &[&str] = &[
-    ".git",
-    "AppData",
-    "node_modules",
-    "dist",
-    "target",
-    ".next",
-    ".turbo",
-    ".cache",
-];
-const NON_GIT_MAX_FILES: usize = 20_000;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotMeta {
@@ -187,14 +175,7 @@ fn create_snapshot(
             prompt_preview,
         );
     }
-    create_snapshot_for_plain_workspace(
-        registry,
-        workspace,
-        store,
-        workspace_root,
-        session_id,
-        prompt_preview,
-    )
+    Err("snapshots require a Git repository".into())
 }
 
 fn create_snapshot_for_repo(
@@ -277,122 +258,7 @@ fn restore_snapshot(
             snapshot_id,
         );
     }
-    restore_snapshot_for_workspace(workspace, store, workspace_root, snapshot_id)
-}
-
-fn create_snapshot_for_plain_workspace(
-    registry: &WorkspaceRegistry,
-    workspace: &WorkspaceEnv,
-    store: &Path,
-    workspace_root: &str,
-    session_id: &str,
-    prompt_preview: &str,
-) -> Result<SnapshotMeta, String> {
-    let root = canonical_dir(registry, workspace_root, workspace).map_err(|e| e.to_string())?;
-    if !registry.is_authorized(&root.local_path) {
-        return Err("workspace is not authorized".into());
-    }
-    let rels = visible_files_non_git(Path::new(&root.local_path))?;
-    let created_at = now_ms();
-    let id = format!("snap-{created_at}-{}", rels.len());
-    let snapshot_dir = workspace_session_dir(store, Path::new(&root.local_path), session_id).join(&id);
-    let files_dir = snapshot_dir.join("files");
-    fs::create_dir_all(&files_dir).map_err(|e| e.to_string())?;
-
-    let mut files = Vec::with_capacity(rels.len());
-    for (idx, rel) in rels.iter().enumerate() {
-        let target = snapshot_rel_to_path(Path::new(&root.local_path), rel)?;
-        let meta = match fs::symlink_metadata(&target) {
-            Ok(m) => m,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                files.push(SnapshotFile { path: rel.clone(), state: FileState::Missing, blob: None });
-                continue;
-            }
-            Err(e) => return Err(e.to_string()),
-        };
-        if meta.file_type().is_symlink() || !meta.is_file() {
-            files.push(SnapshotFile { path: rel.clone(), state: FileState::Skipped, blob: None });
-            continue;
-        }
-        let blob = format!("{idx}.bin");
-        fs::copy(&target, files_dir.join(&blob)).map_err(|e| e.to_string())?;
-        files.push(SnapshotFile { path: rel.clone(), state: FileState::Present, blob: Some(blob) });
-    }
-
-    let meta = SnapshotMeta {
-        id,
-        session_id: session_id.to_string(),
-        workspace_root: to_canon(&root.local_path),
-        created_at,
-        prompt_preview: prompt_preview.chars().take(160).collect(),
-        file_count: files.len(),
-    };
-    write_manifest(&snapshot_dir.join(MANIFEST), &SnapshotManifest { meta: meta.clone(), files })?;
-    Ok(meta)
-}
-
-fn restore_snapshot_for_workspace(
-    _workspace: &WorkspaceEnv,
-    store: &Path,
-    workspace_root: &str,
-    snapshot_id: &str,
-) -> Result<SnapshotRestoreResult, String> {
-    let root = fs::canonicalize(workspace_root).map_err(|e| e.to_string())?;
-    let snapshot_dir = find_snapshot_dir(store, &root, snapshot_id)?;
-    let manifest = read_manifest(&snapshot_dir.join(MANIFEST))?;
-    if manifest.meta.workspace_root != to_canon(&root) {
-        return Err("snapshot belongs to a different workspace".into());
-    }
-    let snapshot_paths: HashSet<String> = manifest.files.iter().map(|f| f.path.clone()).collect();
-    let current_paths = visible_files_non_git(&root)?;
-    let mut restored = 0;
-    let mut deleted = 0;
-    let mut skipped = 0;
-    let mut changed = Vec::new();
-
-    for rel in current_paths {
-        if snapshot_paths.contains(&rel) {
-            continue;
-        }
-        let target = snapshot_rel_to_path(&root, &rel)?;
-        if target.is_file() || target.is_symlink() {
-            fs::remove_file(&target).map_err(|e| e.to_string())?;
-            deleted += 1;
-            changed.push(to_canon(&target));
-        } else if target.is_dir() {
-            fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
-            deleted += 1;
-            changed.push(to_canon(&target));
-        }
-    }
-
-    for file in manifest.files {
-        let target = snapshot_rel_to_path(&root, &file.path)?;
-        match file.state {
-            FileState::Present => {
-                let Some(blob) = file.blob else { skipped += 1; continue; };
-                let source = snapshot_dir.join("files").join(blob);
-                if target.is_file() && files_equal(&source, &target).map_err(|e| e.to_string())? {
-                    continue;
-                }
-                if let Some(parent) = target.parent() {
-                    fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-                }
-                fs::copy(source, &target).map_err(|e| e.to_string())?;
-                restored += 1;
-                changed.push(to_canon(&target));
-            }
-            FileState::Missing => {
-                if target.exists() || target.is_symlink() {
-                    fs::remove_file(&target).map_err(|e| e.to_string())?;
-                    deleted += 1;
-                    changed.push(to_canon(&target));
-                }
-            }
-            FileState::Skipped => skipped += 1,
-        }
-    }
-    Ok(SnapshotRestoreResult { restored, deleted, skipped, paths: changed })
+    Err("snapshots require a Git repository".into())
 }
 
 fn resolve_workspace_local_root(
@@ -410,58 +276,6 @@ fn resolve_workspace_local_root(
     Ok(to_canon(&root.local_path))
 }
 
-fn visible_files_non_git(root: &Path) -> Result<Vec<String>, String> {
-    let mut out = Vec::new();
-    collect_visible_files_non_git(root, &mut out)?;
-    out.sort();
-    out.dedup();
-    Ok(out)
-}
-
-fn collect_visible_files_non_git(root: &Path, out: &mut Vec<String>) -> Result<(), String> {
-    let mut q = VecDeque::new();
-    q.push_back(root.to_path_buf());
-    while let Some(dir) = q.pop_front() {
-        let entries = match fs::read_dir(&dir) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            let meta = match fs::symlink_metadata(&path) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if meta.file_type().is_symlink() {
-                continue;
-            }
-            if meta.is_dir() {
-                if NON_GIT_EXCLUDE_DIRS.iter().any(|d| *d == name) {
-                    continue;
-                }
-                q.push_back(path);
-                continue;
-            }
-            if !meta.is_file() {
-                continue;
-            }
-            let rel = match path.strip_prefix(root) {
-                Ok(v) => v.to_string_lossy().replace('\\', "/"),
-                Err(_) => continue,
-            };
-            if rel.is_empty() || !is_safe_pathspec(&rel) {
-                continue;
-            }
-            out.push(rel);
-            if out.len() >= NON_GIT_MAX_FILES {
-                return Ok(());
-            }
-        }
-    }
-    Ok(())
-}
 
 fn restore_snapshot_for_repo(
     workspace: &WorkspaceEnv,
