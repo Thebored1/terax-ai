@@ -1300,7 +1300,10 @@ export default function App() {
         term.focus();
         return true;
       },
-      getWorkspaceRoot: () => launchCwd ?? explorerRoot ?? home ?? null,
+      // Prefer the active/last terminal cwd first; launchCwd can be stale
+      // after user-driven `cd` changes.
+      getWorkspaceRoot: () =>
+        findCwd() ?? explorerRoot ?? launchCwd ?? home ?? null,
       getActiveFile: () => {
         const t = tabs.find((x) => x.id === activeId);
         return t?.kind === "editor" ? t.path : null;
