@@ -563,20 +563,23 @@ export async function sendMessage(text: string): Promise<boolean> {
   if (!sessionId) return false;
   if (providerNeedsKey(getModel(state.selectedModelId).provider) && !getActiveProviderKey()) return false;
   const c = getOrCreateChat(sessionId);
-  try {
-    const workspaceRoot = state.live.getWorkspaceRoot() ?? state.live.getCwd();
-    if (!workspaceRoot) throw new Error("workspace root unavailable");
-    const snap = await createSnapshot(sessionId, text, workspaceRoot);
-    window.dispatchEvent(
-      new CustomEvent("terax:snapshot-created", { detail: snap }),
-    );
-  } catch (e) {
-    console.warn("[terax] snapshot_create failed:", e);
-    window.dispatchEvent(
-      new CustomEvent("terax:snapshot-created", { detail: null }),
-    );
-  }
   await c.sendMessage({ text });
+  // Never block prompt send on snapshot creation; checkpointing is best-effort.
+  void (async () => {
+    try {
+      const workspaceRoot = state.live.getWorkspaceRoot() ?? state.live.getCwd();
+      if (!workspaceRoot) throw new Error("workspace root unavailable");
+      const snap = await createSnapshot(sessionId, text, workspaceRoot);
+      window.dispatchEvent(
+        new CustomEvent("terax:snapshot-created", { detail: snap }),
+      );
+    } catch (e) {
+      console.warn("[terax] snapshot_create failed:", e);
+      window.dispatchEvent(
+        new CustomEvent("terax:snapshot-created", { detail: null }),
+      );
+    }
+  })();
   return true;
 }
 

@@ -307,27 +307,30 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (!sessionId) return;
     const chat = getOrCreateChat(sessionId);
     void (async () => {
-      try {
-        const live = useChatStore.getState().live;
-        const workspaceRoot = live.getWorkspaceRoot() ?? live.getCwd();
-        if (!workspaceRoot) throw new Error("workspace root unavailable");
-        const snap = await createSnapshot(
-          sessionId,
-          bodyAfterTokens || composed,
-          workspaceRoot,
-        );
-        window.dispatchEvent(
-          new CustomEvent("terax:snapshot-created", { detail: snap }),
-        );
-      } catch (e) {
-        console.warn("[terax] snapshot_create failed:", e);
-        window.dispatchEvent(
-          new CustomEvent("terax:snapshot-created", { detail: null }),
-        );
-      }
       await chat.sendMessage({ role: "user", parts } as Parameters<
         typeof chat.sendMessage
       >[0]);
+      // Never block prompt send on snapshot creation; checkpointing is best-effort.
+      void (async () => {
+        try {
+          const live = useChatStore.getState().live;
+          const workspaceRoot = live.getWorkspaceRoot() ?? live.getCwd();
+          if (!workspaceRoot) throw new Error("workspace root unavailable");
+          const snap = await createSnapshot(
+            sessionId,
+            bodyAfterTokens || composed,
+            workspaceRoot,
+          );
+          window.dispatchEvent(
+            new CustomEvent("terax:snapshot-created", { detail: snap }),
+          );
+        } catch (e) {
+          console.warn("[terax] snapshot_create failed:", e);
+          window.dispatchEvent(
+            new CustomEvent("terax:snapshot-created", { detail: null }),
+          );
+        }
+      })();
     })();
     const store = useChatStore.getState();
     store.patchAgentMeta({ hitStepCap: false, compactionNotice: null });
