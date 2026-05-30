@@ -271,7 +271,9 @@ fn resolve_workspace_local_root(
     }
     let root = canonical_dir(registry, workspace_root, workspace).map_err(|e| e.to_string())?;
     if !registry.is_authorized(&root.local_path) {
-        return Err("workspace is not authorized".into());
+        registry
+            .authorize(&root.local_path)
+            .map_err(|e| format!("workspace is not authorized: {e}"))?;
     }
     Ok(to_canon(&root.local_path))
 }
@@ -438,7 +440,9 @@ fn repo_root_from_single_cwd(
 ) -> Result<crate::modules::git::utils::ResolvedGitDirectory, String> {
     let cwd = canonical_dir(registry, &cwd, workspace).map_err(|e| e.to_string())?;
     if !registry.is_authorized(&cwd.local_path) {
-        return Err("workspace is not authorized".into());
+        registry
+            .authorize(&cwd.local_path)
+            .map_err(|e| format!("workspace is not authorized: {e}"))?;
     }
     let root = git_stdout_line_opt(workspace, &cwd.git_path, ["rev-parse", "--show-toplevel"])
         .map_err(|e| e.to_string())?
