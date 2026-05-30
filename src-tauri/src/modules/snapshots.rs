@@ -175,7 +175,20 @@ fn create_snapshot(
             prompt_preview,
         );
     }
-    Err("snapshots require a Git repository".into())
+    let normalized = resolve_workspace_local_root(registry, workspace, workspace_root)?;
+    if let Ok(repo) = repo_root_from_cwd(registry, workspace, &normalized) {
+        return create_snapshot_for_repo(
+            registry,
+            workspace,
+            store,
+            &repo.git_path,
+            session_id,
+            prompt_preview,
+        );
+    }
+    Err(format!(
+        "snapshots require a Git repository (workspace: {normalized})"
+    ))
 }
 
 fn create_snapshot_for_repo(
@@ -258,7 +271,19 @@ fn restore_snapshot(
             snapshot_id,
         );
     }
-    Err("snapshots require a Git repository".into())
+    let normalized = resolve_workspace_local_root(registry, workspace, workspace_root)?;
+    if let Ok(repo) = repo_root_from_cwd(registry, workspace, &normalized) {
+        return restore_snapshot_for_repo(
+            workspace,
+            store,
+            &to_canon(&repo.local_path),
+            &repo.git_path,
+            snapshot_id,
+        );
+    }
+    Err(format!(
+        "snapshots require a Git repository (workspace: {normalized})"
+    ))
 }
 
 fn resolve_workspace_local_root(
