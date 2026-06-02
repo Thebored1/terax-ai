@@ -30,6 +30,7 @@ import {
   type SessionMeta,
 } from "../lib/sessions";
 import { pushRecentModel } from "../lib/modelPrefs";
+import { native } from "../lib/native";
 import { createContextAwareTransport } from "../lib/transport";
 import { createSnapshot } from "../lib/snapshots";
 import type { ToolContext } from "../tools/tools";
@@ -249,14 +250,17 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     },
     getLive: () => {
       const live = useChatStore.getState().live;
+      const cwd = live.getCwd();
       return {
-        cwd: live.getCwd(),
+        cwd,
         terminalPrivate: live.isActiveTerminalPrivate(),
-        workspaceRoot: live.getWorkspaceRoot(),
+        workspaceRoot: cwd ?? live.getWorkspaceRoot(),
         activeFile: live.getActiveFile(),
       };
     },
     getPlanMode: () => usePlanStore.getState().active,
+    getLlamaCppBaseURL: () => usePreferencesStore.getState().llamaCppBaseURL,
+    getLlamaCppModelId: () => usePreferencesStore.getState().llamaCppModelId,
     getLmstudioBaseURL: () => usePreferencesStore.getState().lmstudioBaseURL,
     getLmstudioModelId: () => usePreferencesStore.getState().lmstudioModelId,
     getMlxBaseURL: () => usePreferencesStore.getState().mlxBaseURL,
@@ -567,8 +571,26 @@ export async function sendMessage(text: string): Promise<boolean> {
   // Never block prompt send on snapshot creation; checkpointing is best-effort.
   void (async () => {
     try {
-      const workspaceRoot = state.live.getWorkspaceRoot() ?? state.live.getCwd();
-      if (!workspaceRoot) throw new Error("workspace root unavailable");
+      const cwd = state.live.getCwd();
+      const hint = state.live.getWorkspaceRoot();
+      const candidates = [cwd, hint].filter(
+        (p): p is string => typeof p === "string" && p.length > 0,
+      );
+      if (candidates.length === 0) {
+        throw new Error("workspace root unavailable");
+      }
+      let workspaceRoot = candidates[0];
+      for (const candidate of candidates) {
+        try {
+          const repo = await native.gitResolveRepo(candidate);
+          if (repo?.repoRoot) {
+            workspaceRoot = repo.repoRoot;
+            break;
+          }
+        } catch {
+          // Fall through to next candidate.
+        }
+      }
       const snap = await createSnapshot(sessionId, text, workspaceRoot);
       window.dispatchEvent(
         new CustomEvent("terax:snapshot-created", { detail: snap }),

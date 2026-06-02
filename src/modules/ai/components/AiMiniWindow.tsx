@@ -203,19 +203,18 @@ function ComposerDockControls({
   onStop: () => void;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-1.5 border-t border-border/50 px-3 py-1.5">
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5 border-t border-border/50 px-3 py-1.5">
       <AiStatusBarControls mode="attach-only" />
       <AgentSwitcher isMiniWindow />
       <MiniAutoApproveToggle />
       <AiStatusBarControls mode="model-only" />
-      <span className="flex-1" />
       <Button
         type="button"
         size="sm"
         variant="ghost"
         onClick={onStop}
         disabled={!isBusy}
-        className="h-6 shrink-0 gap-1.5 px-2 text-[10px]"
+        className="ml-auto h-6 shrink-0 gap-1.5 px-2 text-[10px]"
         title={isBusy ? "Stop agent" : "Agent idle"}
       >
         {isBusy ? (

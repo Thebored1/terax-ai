@@ -1,17 +1,20 @@
 import {
   convertToModelMessages,
+  extractReasoningMiddleware,
   pruneMessages,
   stepCountIs,
   streamText,
   type LanguageModel,
   type ModelMessage,
   type UIMessage,
+  wrapLanguageModel,
 } from "ai";
 import {
   DEFAULT_MODEL_ID,
   getModel,
   getModelContextLimit,
   decodeDynamicModelId,
+  LLAMA_CPP_DEFAULT_BASE_URL,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
   MLX_DEFAULT_BASE_URL,
@@ -28,7 +31,6 @@ import type { ProviderKeys } from "./keyring";
 import { createProxyFetch } from "./proxyFetch";
 
 const localProxyFetch = createProxyFetch({ allowPrivateNetwork: true });
-
 const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> =
   {
     read_file: (i) => `Reading ${shortPath(i.path)}`,
@@ -64,6 +66,7 @@ function ellipsize(s: string, max: number): string {
 
 export type BuildModelOptions = {
   modelIdOverride?: string;
+  llamaCppBaseURL?: string;
   lmstudioBaseURL?: string;
   mlxBaseURL?: string;
   ollamaBaseURL?: string;
@@ -84,11 +87,12 @@ export async function buildLanguageModel(
     );
   }
   const key = keys[provider] ?? "";
+  const llamaCppURL = options.llamaCppBaseURL ?? LLAMA_CPP_DEFAULT_BASE_URL;
   const lmstudioURL = options.lmstudioBaseURL ?? LMSTUDIO_DEFAULT_BASE_URL;
   const mlxURL = options.mlxBaseURL ?? MLX_DEFAULT_BASE_URL;
   const ollamaURL = options.ollamaBaseURL ?? OLLAMA_DEFAULT_BASE_URL;
   const compatURL = options.openaiCompatibleBaseURL ?? "";
-  const cacheKey = `${provider} ${key} ${resolvedModelId} ${lmstudioURL} ${mlxURL} ${ollamaURL} ${compatURL}`;
+  const cacheKey = `${provider} ${key} ${resolvedModelId} ${llamaCppURL} ${lmstudioURL} ${mlxURL} ${ollamaURL} ${compatURL}`;
   const hit = modelCache.get(cacheKey);
   if (hit) return hit;
 
@@ -184,6 +188,16 @@ export async function buildLanguageModel(
       })(resolvedModelId);
       break;
     }
+    case "llama-cpp": {
+      const { createOpenAICompatible } =
+        await import("@ai-sdk/openai-compatible");
+      built = createOpenAICompatible({
+        name: "llama-cpp",
+        baseURL: llamaCppURL,
+        fetch: localProxyFetch,
+      })(resolvedModelId);
+      break;
+    }
     case "lmstudio": {
       const { createOpenAICompatible } =
         await import("@ai-sdk/openai-compatible");
@@ -224,6 +238,8 @@ export async function buildLanguageModel(
 }
 
 export type LocalProviderConfig = {
+  llamaCppBaseURL?: string;
+  llamaCppModelId?: string;
   lmstudioBaseURL?: string;
   lmstudioModelId?: string;
   mlxBaseURL?: string;
@@ -249,6 +265,13 @@ export function buildConfiguredLanguageModel(
       );
     }
     resolvedId = local.lmstudioModelId.trim();
+  } else if (m.id === "llama-cpp-local") {
+    if (!local.llamaCppModelId?.trim()) {
+      throw new Error(
+        "llama.cpp: no model id set. Open Settings → Models and enter the served alias/model id.",
+      );
+    }
+    resolvedId = local.llamaCppModelId.trim();
   } else if (m.id === "mlx-local") {
     if (!local.mlxModelId?.trim()) {
       throw new Error(
@@ -279,6 +302,7 @@ export function buildConfiguredLanguageModel(
     resolvedId = local.openrouterModelId.trim();
   }
   return buildLanguageModel(m.provider, keys, resolvedId, {
+    llamaCppBaseURL: local.llamaCppBaseURL,
     lmstudioBaseURL: local.lmstudioBaseURL,
     mlxBaseURL: local.mlxBaseURL,
     ollamaBaseURL: local.ollamaBaseURL,
@@ -358,6 +382,8 @@ export type RunAgentOptions = {
   onUsage?: (delta: AgentUsageDelta) => void;
   onCompact?: (info: { droppedCount: number }) => void;
   onFinishMeta?: (info: { hitStepCap: boolean; finishReason: string }) => void;
+  llamaCppBaseURL?: string;
+  llamaCppModelId?: string;
   lmstudioBaseURL?: string;
   lmstudioModelId?: string;
   mlxBaseURL?: string;
@@ -377,6 +403,8 @@ export type RunAgentOptions = {
 export async function runAgentStream(opts: RunAgentOptions) {
   const modelId = opts.modelId ?? DEFAULT_MODEL_ID;
   const model = await buildConfiguredLanguageModel(modelId, opts.keys, {
+    llamaCppBaseURL: opts.llamaCppBaseURL,
+    llamaCppModelId: opts.llamaCppModelId,
     lmstudioBaseURL: opts.lmstudioBaseURL,
     lmstudioModelId: opts.lmstudioModelId,
     mlxBaseURL: opts.mlxBaseURL,
@@ -388,6 +416,19 @@ export async function runAgentStream(opts: RunAgentOptions) {
     openrouterModelId: opts.openrouterModelId,
   });
   const provider = getModel(modelId).provider;
+  const resolvedOllamaModelId = opts.ollamaModelId?.trim() ?? "";
+  const isMiniCpmOllama =
+    provider === "ollama" &&
+    modelId === "ollama-local" &&
+    /(^|\/)minicpm5(?::|$)/i.test(resolvedOllamaModelId);
+
+  const modelWithMiddleware: LanguageModel = isMiniCpmOllama
+    ? (wrapLanguageModel({
+        model:
+          model as Parameters<typeof wrapLanguageModel>[0]["model"],
+        middleware: extractReasoningMiddleware({ tagName: "think" }),
+      }) as unknown as LanguageModel)
+    : model;
 
   const stableSystem = buildStableSystem(
     modelId,
@@ -423,9 +464,19 @@ export async function runAgentStream(opts: RunAgentOptions) {
   const finalMessages = applyCacheBreakpoints(messages, provider);
 
   let stepsSeen = 0;
+  const providerOptions =
+    isMiniCpmOllama
+      ? ({
+          ollama: {
+            think: false,
+            enable_thinking: false,
+          },
+        } as const)
+      : undefined;
   return streamText({
-    model,
+    model: modelWithMiddleware,
     messages: finalMessages,
+    providerOptions,
     tools: buildTools(opts.toolContext),
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     abortSignal: opts.abortSignal,

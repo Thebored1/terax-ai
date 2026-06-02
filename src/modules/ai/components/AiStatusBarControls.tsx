@@ -70,6 +70,7 @@ const PROVIDER_ICON = {
   "opencode-zen": CodeIcon,
   openrouter: GlobeIcon,
   "openai-compatible": PlugIcon,
+  "llama-cpp": ServerStack01Icon,
   lmstudio: ComputerIcon,
   mlx: AppleIcon,
   ollama: ServerStack01Icon,
@@ -244,12 +245,14 @@ function ModelDropdown({ compact = false }: { compact?: boolean }) {
   const favoriteIds = usePreferencesStore((s) => s.favoriteModelIds);
   const recentIds = usePreferencesStore((s) => s.recentModelIds);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
+  const llamaCppBaseURL = usePreferencesStore((s) => s.llamaCppBaseURL);
   const mlxBaseURL = usePreferencesStore((s) => s.mlxBaseURL);
   const ollamaBaseURL = usePreferencesStore((s) => s.ollamaBaseURL);
   const openaiCompatibleBaseURL = usePreferencesStore(
     (s) => s.openaiCompatibleBaseURL,
   );
   const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
+  const llamaCppModelId = usePreferencesStore((s) => s.llamaCppModelId);
   const mlxModelId = usePreferencesStore((s) => s.mlxModelId);
   const ollamaModelId = usePreferencesStore((s) => s.ollamaModelId);
   const openaiCompatibleModelId = usePreferencesStore(
@@ -295,6 +298,7 @@ function ModelDropdown({ compact = false }: { compact?: boolean }) {
       });
       byProvider.set(provider, list);
     };
+    addManual("llama-cpp", llamaCppModelId);
     addManual("lmstudio", lmstudioModelId);
     addManual("mlx", mlxModelId);
     addManual("ollama", ollamaModelId);
@@ -303,6 +307,7 @@ function ModelDropdown({ compact = false }: { compact?: boolean }) {
     return [...byProvider.values()].flat();
   }, [
     liveModels,
+    llamaCppModelId,
     lmstudioModelId,
     mlxModelId,
     ollamaModelId,
@@ -313,6 +318,7 @@ function ModelDropdown({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     let cancelled = false;
     const baseURLFor = (provider: ProviderId) => {
+      if (provider === "llama-cpp") return llamaCppBaseURL;
       if (provider === "lmstudio") return lmstudioBaseURL;
       if (provider === "mlx") return mlxBaseURL;
       if (provider === "ollama") return ollamaBaseURL;
@@ -348,7 +354,7 @@ function ModelDropdown({ compact = false }: { compact?: boolean }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiKeys, lmstudioBaseURL, mlxBaseURL, ollamaBaseURL, openaiCompatibleBaseURL]);
+  }, [apiKeys, llamaCppBaseURL, lmstudioBaseURL, mlxBaseURL, ollamaBaseURL, openaiCompatibleBaseURL]);
 
   const sortedProviders = useMemo(() => {
     const configured: (typeof PROVIDERS)[number][] = [];

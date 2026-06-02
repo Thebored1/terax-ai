@@ -21,6 +21,7 @@ export const EMPTY_PROVIDER_KEYS: ProviderKeys = {
   "opencode-zen": null,
   openrouter: null,
   "openai-compatible": null,
+  "llama-cpp": null,
   lmstudio: null,
   mlx: null,
   ollama: null,

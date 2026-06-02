@@ -106,13 +106,13 @@ export const SHORTCUTS: Shortcut[] = [
     id: "pane.splitRight",
     label: "Split pane right",
     group: "Panes",
-    defaultBindings: [{ [MOD_PROP]: true, key: "d" }],
+    defaultBindings: [{ [MOD_PROP]: true, key: "\\" }],
   },
   {
     id: "pane.splitDown",
     label: "Split pane down",
     group: "Panes",
-    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "d" }],
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "\\" }],
   },
   {
     id: "pane.focusNext",

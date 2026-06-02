@@ -4,6 +4,7 @@ import {
   type ModelInfo,
   type ProviderId,
 } from "../config";
+import { createProxyFetch } from "./proxyFetch";
 
 export type DiscoverModelsOptions = {
   apiKey?: string | null;
@@ -28,10 +29,13 @@ const OPENAI_COMPAT_BASE: Partial<Record<ProviderId, string>> = {
   mistral: "https://api.mistral.ai/v1",
   openrouter: "https://openrouter.ai/api/v1",
   "opencode-zen": "https://opencode.ai/zen/v1",
+  "llama-cpp": "http://127.0.0.1:8080/v1",
   lmstudio: "http://localhost:1234/v1",
   mlx: "http://127.0.0.1:8080/v1",
   ollama: "http://localhost:11434/v1",
 };
+
+const localProxyFetch = createProxyFetch({ allowPrivateNetwork: true });
 
 export async function discoverProviderModels(
   provider: ProviderId,
@@ -90,16 +94,34 @@ async function fetchOpenAICompatibleModels(
 ): Promise<RawModel[]> {
   const headers: Record<string, string> = {};
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const res = await fetch(`${baseURL.replace(/\/+$/, "")}/models`, { headers });
+  const res = await localProxyFetch(`${baseURL.replace(/\/+$/, "")}/models`, {
+    headers,
+  });
   if (!res.ok) throw new Error(`${provider}: model list failed (${res.status})`);
   const json = await res.json();
-  const data = Array.isArray(json?.data) ? json.data : [];
+  const data = Array.isArray(json?.data)
+    ? json.data
+    : Array.isArray(json?.models)
+      ? json.models
+      : [];
   return data
-    .map((m: { id?: unknown; name?: unknown; context_length?: unknown }) => ({
-      id: typeof m.id === "string" ? m.id : "",
-      name: typeof m.name === "string" ? m.name : undefined,
-      context: typeof m.context_length === "number" ? m.context_length : undefined,
-    }))
+    .map(
+      (m: {
+        id?: unknown;
+        name?: unknown;
+        context_length?: unknown;
+        max_context_length?: unknown;
+      }) => ({
+        id: typeof m.id === "string" ? m.id : "",
+        name: typeof m.name === "string" ? m.name : undefined,
+        context:
+          typeof m.context_length === "number"
+            ? m.context_length
+            : typeof m.max_context_length === "number"
+              ? m.max_context_length
+              : undefined,
+      }),
+    )
     .filter((m: RawModel) => m.id);
 }
 

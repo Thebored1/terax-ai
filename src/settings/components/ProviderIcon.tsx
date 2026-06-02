@@ -29,6 +29,7 @@ const ICON_BY_PROVIDER = {
   "opencode-zen": CodeIcon,
   openrouter: GlobeIcon,
   "openai-compatible": PlugIcon,
+  "llama-cpp": ServerStack01Icon,
   lmstudio: ComputerIcon,
   mlx: AppleIcon,
   ollama: ServerStack01Icon,

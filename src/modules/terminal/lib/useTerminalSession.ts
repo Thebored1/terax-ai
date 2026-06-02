@@ -511,13 +511,19 @@ export function useTerminalSession({
     return sel.length > 0 ? sel : null;
   }, [leafId]);
 
+  const getCwd = useCallback((): string | null => {
+    const s = sessions.get(leafId);
+    if (!s) return null;
+    return s.lastCwd ?? s.initialCwd ?? null;
+  }, [leafId]);
+
   const applyTheme = useCallback(() => {
     applyPoolTheme();
   }, []);
 
   return useMemo(
-    () => ({ write, focus, getBuffer, getSelection, applyTheme }),
-    [write, focus, getBuffer, getSelection, applyTheme],
+    () => ({ write, focus, getBuffer, getSelection, getCwd, applyTheme }),
+    [write, focus, getBuffer, getSelection, getCwd, applyTheme],
   );
 }
 

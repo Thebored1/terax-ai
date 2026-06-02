@@ -129,7 +129,7 @@ const SIDEBAR_MAX_WIDTH = 480;
 const SIDEBAR_WIDTH_STORAGE_KEY = "terax.sidebar.width";
 const SIDEBAR_VIEW_STORAGE_KEY = "terax.sidebar.view";
 const AI_SIDEBAR_DEFAULT_WIDTH = 560;
-const AI_SIDEBAR_MIN_WIDTH = 520;
+const AI_SIDEBAR_MIN_WIDTH = 320;
 const AI_SIDEBAR_MAX_WIDTH = 820;
 const AI_SIDEBAR_WIDTH_STORAGE_KEY = "terax.ai.sidebar.width";
 
@@ -237,10 +237,12 @@ export default function App() {
   const explorerReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const sidebarRef = useRef<PanelImperativeHandle | null>(null);
+  const aiSidebarRef = useRef<PanelImperativeHandle | null>(null);
   const sidebarWidthRef = useRef(readSidebarWidth());
   const sidebarWidthWriteTimerRef = useRef(0);
   const aiSidebarWidthRef = useRef(readAiSidebarWidth());
   const aiSidebarWidthWriteTimerRef = useRef(0);
+  const aiSidebarResizeRafRef = useRef(0);
   const [sidebarView, setSidebarViewState] = useState<SidebarViewId>(readSidebarView);
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
@@ -304,6 +306,11 @@ export default function App() {
       }
     }, 120);
   }, []);
+  const applyAiSidebarWidth = useCallback(() => {
+    const panel = aiSidebarRef.current;
+    if (!panel) return;
+    panel.resize(`${clampAiSidebarWidth(aiSidebarWidthRef.current)}px`);
+  }, []);
   useEffect(() => {
     return () => {
       if (sidebarWidthWriteTimerRef.current) {
@@ -312,9 +319,11 @@ export default function App() {
       if (aiSidebarWidthWriteTimerRef.current) {
         window.clearTimeout(aiSidebarWidthWriteTimerRef.current);
       }
+      if (aiSidebarResizeRafRef.current) {
+        window.cancelAnimationFrame(aiSidebarResizeRafRef.current);
+      }
     };
   }, []);
-
   const toggleExplorerFocus = useCallback(() => {
     const explorer = explorerRef.current;
     const panel = sidebarRef.current;
@@ -464,6 +473,28 @@ export default function App() {
       openaiCompatibleModelId.trim().length > 0);
   const hasComposer = hasAnyKey(apiKeys) || hasLocalModel;
   const aiSidebarBootedRef = useRef(false);
+
+  useEffect(() => {
+    if (!(miniOpen && hasComposer)) return;
+    const schedule = () => {
+      if (aiSidebarResizeRafRef.current) {
+        window.cancelAnimationFrame(aiSidebarResizeRafRef.current);
+      }
+      aiSidebarResizeRafRef.current = window.requestAnimationFrame(() => {
+        aiSidebarResizeRafRef.current = 0;
+        applyAiSidebarWidth();
+      });
+    };
+    schedule();
+    window.addEventListener("resize", schedule, { passive: true });
+    return () => {
+      window.removeEventListener("resize", schedule);
+      if (aiSidebarResizeRafRef.current) {
+        window.cancelAnimationFrame(aiSidebarResizeRafRef.current);
+        aiSidebarResizeRafRef.current = 0;
+      }
+    };
+  }, [miniOpen, hasComposer, applyAiSidebarWidth]);
 
   const [keysLoaded, setKeysLoaded] = useState(false);
   useEffect(() => {
@@ -1327,12 +1358,21 @@ export default function App() {
     const findCwd = () => {
       const active = tabs.find((x) => x.id === activeId);
       if (active?.kind === "terminal") {
-        return findLeafCwd(active.paneTree, active.activeLeafId) ?? active.cwd ?? null;
+        const liveCwd = terminalRefs.current.get(active.activeLeafId)?.getCwd();
+        return (
+          liveCwd ??
+          findLeafCwd(active.paneTree, active.activeLeafId) ??
+          active.cwd ??
+          null
+        );
       }
       for (let i = tabs.length - 1; i >= 0; i--) {
         const t = tabs[i];
         if (t.kind !== "terminal") continue;
-        const cwd = findLeafCwd(t.paneTree, t.activeLeafId) ?? t.cwd;
+        const cwd =
+          terminalRefs.current.get(t.activeLeafId)?.getCwd() ??
+          findLeafCwd(t.paneTree, t.activeLeafId) ??
+          t.cwd;
         if (cwd) return cwd;
       }
       return explorerRoot ?? launchCwd ?? home ?? null;
@@ -1598,6 +1638,7 @@ export default function App() {
                         <ResizableHandle withHandle />
                         <ResizablePanel
                           id="workspace-ai-sidebar"
+                          panelRef={aiSidebarRef}
                           defaultSize={`${aiSidebarWidthRef.current}px`}
                           minSize={`${AI_SIDEBAR_MIN_WIDTH}px`}
                           maxSize={`${AI_SIDEBAR_MAX_WIDTH}px`}
@@ -1607,7 +1648,7 @@ export default function App() {
                             }
                           }}
                         >
-                          <aside className="h-full min-w-[520px] border-l border-border/60 bg-card">
+                          <aside className="h-full min-w-0 border-l border-border/60 bg-card">
                             <AiMiniWindow />
                           </aside>
                         </ResizablePanel>

@@ -12,6 +12,7 @@ import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
 import { currentWorkspaceEnv } from "@/modules/workspace";
+import { native } from "./native";
 import { createSnapshot } from "./snapshots";
 
 export type FileAttachment = {
@@ -314,8 +315,26 @@ export function AiComposerProvider({ children }: ProviderProps) {
       void (async () => {
         try {
           const live = useChatStore.getState().live;
-          const workspaceRoot = live.getWorkspaceRoot() ?? live.getCwd();
-          if (!workspaceRoot) throw new Error("workspace root unavailable");
+          const cwd = live.getCwd();
+          const hint = live.getWorkspaceRoot();
+          const candidates = [cwd, hint].filter(
+            (p): p is string => typeof p === "string" && p.length > 0,
+          );
+          if (candidates.length === 0) {
+            throw new Error("workspace root unavailable");
+          }
+          let workspaceRoot = candidates[0];
+          for (const candidate of candidates) {
+            try {
+              const repo = await native.gitResolveRepo(candidate);
+              if (repo?.repoRoot) {
+                workspaceRoot = repo.repoRoot;
+                break;
+              }
+            } catch {
+              // Fall through to next candidate; snapshot backend still validates.
+            }
+          }
           const snap = await createSnapshot(
             sessionId,
             bodyAfterTokens || composed,

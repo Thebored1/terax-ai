@@ -2,6 +2,7 @@ import {
   DEFAULT_AUTOCOMPLETE_MODEL,
   DEFAULT_MODEL_ID,
   isKnownModelId,
+  LLAMA_CPP_DEFAULT_BASE_URL,
   LMSTUDIO_DEFAULT_BASE_URL,
   MLX_DEFAULT_BASE_URL,
   OLLAMA_DEFAULT_BASE_URL,
@@ -62,6 +63,9 @@ export type Preferences = {
   autocompleteEnabled: boolean;
   autocompleteProvider: AutocompleteProviderId;
   autocompleteModelId: string;
+  llamaCppBaseURL: string;
+  llamaCppModelId: string;
+  llamaCppSource: string;
   lmstudioBaseURL: string;
   lmstudioModelId: string;
   mlxBaseURL: string;
@@ -105,6 +109,9 @@ const KEY_RESTORE_WINDOW = "restoreWindowState";
 const KEY_AUTOCOMPLETE_ENABLED = "autocompleteEnabled";
 const KEY_AUTOCOMPLETE_PROVIDER = "autocompleteProvider";
 const KEY_AUTOCOMPLETE_MODEL = "autocompleteModelId";
+const KEY_LLAMA_CPP_BASE_URL = "llamaCppBaseURL";
+const KEY_LLAMA_CPP_MODEL_ID = "llamaCppModelId";
+const KEY_LLAMA_CPP_SOURCE = "llamaCppSource";
 const KEY_LMSTUDIO_BASE_URL = "lmstudioBaseURL";
 const KEY_LMSTUDIO_MODEL_ID = "lmstudioModelId";
 const KEY_MLX_BASE_URL = "mlxBaseURL";
@@ -163,6 +170,9 @@ export const DEFAULT_PREFERENCES: Preferences = {
   autocompleteEnabled: false,
   autocompleteProvider: "cerebras",
   autocompleteModelId: DEFAULT_AUTOCOMPLETE_MODEL.cerebras ?? "",
+  llamaCppBaseURL: LLAMA_CPP_DEFAULT_BASE_URL,
+  llamaCppModelId: "",
+  llamaCppSource: "",
   lmstudioBaseURL: LMSTUDIO_DEFAULT_BASE_URL,
   lmstudioModelId: "",
   mlxBaseURL: MLX_DEFAULT_BASE_URL,
@@ -249,6 +259,15 @@ export async function loadPreferences(): Promise<Preferences> {
     autocompleteModelId:
       get<string>(KEY_AUTOCOMPLETE_MODEL) ??
       DEFAULT_PREFERENCES.autocompleteModelId,
+    llamaCppBaseURL:
+      get<string>(KEY_LLAMA_CPP_BASE_URL) ??
+      DEFAULT_PREFERENCES.llamaCppBaseURL,
+    llamaCppModelId:
+      get<string>(KEY_LLAMA_CPP_MODEL_ID) ??
+      DEFAULT_PREFERENCES.llamaCppModelId,
+    llamaCppSource:
+      get<string>(KEY_LLAMA_CPP_SOURCE) ??
+      DEFAULT_PREFERENCES.llamaCppSource,
     lmstudioBaseURL:
       get<string>(KEY_LMSTUDIO_BASE_URL) ?? DEFAULT_PREFERENCES.lmstudioBaseURL,
     lmstudioModelId:
@@ -395,6 +414,18 @@ export async function setAutocompleteProvider(
 
 export async function setAutocompleteModelId(value: string): Promise<void> {
   await writePref(KEY_AUTOCOMPLETE_MODEL, value);
+}
+
+export async function setLlamaCppBaseURL(value: string): Promise<void> {
+  await writePref(KEY_LLAMA_CPP_BASE_URL, value);
+}
+
+export async function setLlamaCppModelId(value: string): Promise<void> {
+  await writePref(KEY_LLAMA_CPP_MODEL_ID, value);
+}
+
+export async function setLlamaCppSource(value: string): Promise<void> {
+  await writePref(KEY_LLAMA_CPP_SOURCE, value);
 }
 
 export async function setLmstudioBaseURL(value: string): Promise<void> {
@@ -553,6 +584,9 @@ export async function onPreferencesChange(
     [KEY_AUTOCOMPLETE_ENABLED]: "autocompleteEnabled",
     [KEY_AUTOCOMPLETE_PROVIDER]: "autocompleteProvider",
     [KEY_AUTOCOMPLETE_MODEL]: "autocompleteModelId",
+    [KEY_LLAMA_CPP_BASE_URL]: "llamaCppBaseURL",
+    [KEY_LLAMA_CPP_MODEL_ID]: "llamaCppModelId",
+    [KEY_LLAMA_CPP_SOURCE]: "llamaCppSource",
     [KEY_LMSTUDIO_BASE_URL]: "lmstudioBaseURL",
     [KEY_LMSTUDIO_MODEL_ID]: "lmstudioModelId",
     [KEY_MLX_BASE_URL]: "mlxBaseURL",

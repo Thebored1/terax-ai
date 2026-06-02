@@ -12,6 +12,7 @@ export type ProviderId =
   | "opencode-zen"
   | "openrouter"
   | "openai-compatible"
+  | "llama-cpp"
   | "lmstudio"
   | "mlx"
   | "ollama";
@@ -104,6 +105,13 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyPrefix: null,
     consoleUrl: "https://platform.openai.com/docs/api-reference",
     keyOptional: true,
+  },
+  {
+    id: "llama-cpp",
+    label: "llama.cpp",
+    keyringAccount: "",
+    keyPrefix: null,
+    consoleUrl: "https://github.com/ggml-org/llama.cpp",
   },
   {
     id: "lmstudio",
@@ -520,6 +528,16 @@ export const MODELS = [
 
   // ── LM Studio (local; model id is user-supplied at runtime) ───────────────
   {
+    id: "llama-cpp-local",
+    provider: "llama-cpp",
+    label: "llama.cpp",
+    hint: "Local",
+    description: "Local GGUF models via llama.cpp server.",
+    capabilities: { intelligence: 3, speed: 3, cost: 5 },
+  },
+
+  // ── LM Studio (local; model id is user-supplied at runtime) ───────────────
+  {
     id: "lmstudio-local",
     provider: "lmstudio",
     label: "LM Studio",
@@ -594,6 +612,7 @@ export function isKnownModelId(id: string): id is ModelId {
 const FREEFORM_PROVIDERS: ReadonlySet<ProviderId> = new Set([
   "openrouter",
   "openai-compatible",
+  "llama-cpp",
   "lmstudio",
   "mlx",
   "ollama",
@@ -646,6 +665,7 @@ export const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "deepseek-r1-distill-llama-70b": 128_000,
   "openrouter-custom": 256_000,
   "openai-compatible-custom": 128_000,
+  "llama-cpp-local": 128_000,
   "lmstudio-local": 32_000,
   "mlx-local": 32_000,
   "ollama-local": 32_000,
@@ -715,6 +735,7 @@ export const KEYLESS_PROVIDERS: readonly ProviderId[] = [
   "lmstudio",
   "mlx",
   "ollama",
+  "llama-cpp",
   "openai-compatible",
 ] as const;
 
@@ -739,6 +760,7 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Partial<Record<ProviderId, string>> = {
   cerebras: "gpt-oss-120b",
   groq: "openai/gpt-oss-20b",
   lmstudio: "qwen2.5-coder-7b-instruct",
+  "llama-cpp": "",
   openai: "gpt-5.4-nano",
   anthropic: "claude-haiku-4-5",
   google: "gemini-2.5-flash",
@@ -757,6 +779,7 @@ export function getAutocompleteEligibleModels(): readonly ModelInfo[] {
 }
 
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
+export const LLAMA_CPP_DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1";
 export const MLX_DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1";
 export const OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1";
 export const OPENAI_COMPATIBLE_DEFAULT_BASE_URL = "";

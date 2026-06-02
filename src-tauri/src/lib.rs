@@ -1,6 +1,6 @@
 pub mod modules;
 
-use modules::{agent, fs, git, net, pty, secrets, shell, snapshots, workspace};
+use modules::{agent, fs, git, llama, net, pty, secrets, shell, snapshots, workspace};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -54,9 +54,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
         .min_inner_size(820.0, 620.0)
         .resizable(true)
         .visible(false)
-        // Keep settings above the main app window so it doesn't get hidden
-        // when the user clicks back into the editor or terminal (#33).
-        .always_on_top(true);
+        .always_on_top(false);
 
     // Tie lifecycle to the main window so settings minimizes/closes with it.
     if let Some(main) = app.get_webview_window("main") {
@@ -113,6 +111,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(pty::PtyState::default())
         .manage(shell::ShellState::default())
+        .manage(llama::LlamaRuntimeState::default())
         .manage(secrets::SecretsState::default())
         .manage(fs::watch::FsWatchState::default())
         .manage({
@@ -185,6 +184,9 @@ pub fn run() {
             secrets::secrets_delete,
             secrets::secrets_get_all,
             net::lm_ping,
+            llama::llama_runtime_start,
+            llama::llama_runtime_stop,
+            llama::llama_runtime_status,
             net::ai_http_request,
             net::ai_http_stream,
             snapshots::snapshot_create,

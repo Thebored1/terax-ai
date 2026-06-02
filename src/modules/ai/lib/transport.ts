@@ -46,6 +46,8 @@ type Deps = {
   getCustomInstructions: () => string;
   getAgentPersona: () => { name: string; instructions: string } | null;
   getLive: () => LiveSnapshot;
+  getLlamaCppBaseURL?: () => string | undefined;
+  getLlamaCppModelId?: () => string | undefined;
   getLmstudioBaseURL?: () => string | undefined;
   getLmstudioModelId?: () => string | undefined;
   getMlxBaseURL?: () => string | undefined;
@@ -87,6 +89,8 @@ export function createContextAwareTransport(deps: Deps) {
       onUsage: deps.onUsage,
       onCompact: deps.onCompact,
       onFinishMeta: deps.onFinishMeta,
+      llamaCppBaseURL: deps.getLlamaCppBaseURL?.(),
+      llamaCppModelId: deps.getLlamaCppModelId?.(),
       lmstudioBaseURL: deps.getLmstudioBaseURL?.(),
       lmstudioModelId: deps.getLmstudioModelId?.(),
       mlxBaseURL: deps.getMlxBaseURL?.(),

@@ -44,6 +44,7 @@ import {
   restoreSnapshot,
   type SnapshotMeta,
 } from "../lib/snapshots";
+import { splitAssistantThinking } from "../lib/assistantText";
 import type {
   ChatStatus,
   DynamicToolUIPart,
@@ -209,7 +210,7 @@ export function AiChatView({
   const patchAgentMeta = useChatStore((s) => s.patchAgentMeta);
   const sessionId = useChatStore((s) => s.activeSessionId);
   const workspaceRoot = useChatStore(
-    (s) => s.live.getWorkspaceRoot() ?? s.live.getCwd(),
+    (s) => s.live.getCwd() ?? s.live.getWorkspaceRoot(),
   );
   const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([]);
   const [checkpointReason, setCheckpointReason] = useState<string | null>(null);
@@ -788,10 +789,24 @@ const RenderedPart = memo(function RenderedPart({
   streaming: boolean;
 }) {
   if (part.type === "text") {
+    const { reasoning, answer } = splitAssistantThinking(
+      (part as unknown as { text: string }).text ?? "",
+    );
+    if (!reasoning && !answer) return null;
     return (
-      <MessageResponse streaming={streaming}>
-        {(part as unknown as { text: string }).text}
-      </MessageResponse>
+      <>
+        {reasoning ? (
+          <Reasoning>
+            <ReasoningTrigger />
+            <ReasoningContent>{reasoning}</ReasoningContent>
+          </Reasoning>
+        ) : null}
+        {answer ? (
+          <MessageResponse streaming={streaming}>
+            {answer}
+          </MessageResponse>
+        ) : null}
+      </>
     );
   }
 

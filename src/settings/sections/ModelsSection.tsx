@@ -32,6 +32,9 @@ import {
   setAutocompleteModelId,
   setAutocompleteProvider,
   setDefaultModel,
+  setLlamaCppBaseURL,
+  setLlamaCppModelId,
+  setLlamaCppSource,
   setLmstudioBaseURL,
   setLmstudioModelId,
   setMlxBaseURL,
@@ -70,6 +73,17 @@ type LocalMeta = {
 };
 
 const LOCAL_META: Partial<Record<ProviderId, LocalMeta>> = {
+  "llama-cpp": {
+    urlPlaceholder: "http://127.0.0.1:8080/v1",
+    modelPlaceholder: "minicpm5",
+    description:
+      "Native GGUF runtime via llama.cpp OpenAI-compatible server.",
+    modelHint: (
+      <>
+        Set the served alias/model id and optionally start the runtime below.
+      </>
+    ),
+  },
   lmstudio: {
     urlPlaceholder: "http://localhost:1234/v1",
     modelPlaceholder: "qwen2.5-coder-7b-instruct",
@@ -99,9 +113,14 @@ const LOCAL_META: Partial<Record<ProviderId, LocalMeta>> = {
   },
   "openai-compatible": {
     urlPlaceholder: "https://api.example.com/v1",
-    modelPlaceholder: "gpt-4o, qwen3-max, glm-4.6, …",
+    modelPlaceholder: "Optional manual override (otherwise pick from discovered list)",
     description: "Any OpenAI-compatible endpoint — vLLM, Z.AI, Fireworks, etc.",
-    modelHint: null,
+    modelHint: (
+      <>
+        Models are auto-discovered from{" "}
+        <span className="font-mono">/v1/models</span> once Base URL is set.
+      </>
+    ),
   },
   openrouter: {
     urlPlaceholder: "",
@@ -122,6 +141,9 @@ export function ModelsSection() {
   const [liveModels, setLiveModels] = useState<Partial<Record<ProviderId, ModelInfo[]>>>({});
 
   const defaultModel = usePreferencesStore((s) => s.defaultModelId);
+  const llamaCppBaseURL = usePreferencesStore((s) => s.llamaCppBaseURL);
+  const llamaCppModelId = usePreferencesStore((s) => s.llamaCppModelId);
+  const llamaCppSource = usePreferencesStore((s) => s.llamaCppSource);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
   const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
   const mlxBaseURL = usePreferencesStore((s) => s.mlxBaseURL);
@@ -174,6 +196,7 @@ export function ModelsSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     keys,
+    llamaCppBaseURL,
     lmstudioBaseURL,
     mlxBaseURL,
     ollamaBaseURL,
@@ -199,13 +222,26 @@ export function ModelsSection() {
         return {
           baseURL: lmstudioBaseURL,
           modelId: lmstudioModelId,
+          source: "",
+          setSource: async () => {},
           setBaseURL: setLmstudioBaseURL,
           setModelId: setLmstudioModelId,
+        };
+      case "llama-cpp":
+        return {
+          baseURL: llamaCppBaseURL,
+          modelId: llamaCppModelId,
+          source: llamaCppSource,
+          setSource: setLlamaCppSource,
+          setBaseURL: setLlamaCppBaseURL,
+          setModelId: setLlamaCppModelId,
         };
       case "mlx":
         return {
           baseURL: mlxBaseURL,
           modelId: mlxModelId,
+          source: "",
+          setSource: async () => {},
           setBaseURL: setMlxBaseURL,
           setModelId: setMlxModelId,
         };
@@ -213,6 +249,8 @@ export function ModelsSection() {
         return {
           baseURL: ollamaBaseURL,
           modelId: ollamaModelId,
+          source: "",
+          setSource: async () => {},
           setBaseURL: setOllamaBaseURL,
           setModelId: setOllamaModelId,
         };
@@ -220,6 +258,8 @@ export function ModelsSection() {
         return {
           baseURL: compatBaseURL,
           modelId: compatModelId,
+          source: "",
+          setSource: async () => {},
           setBaseURL: setOpenaiCompatibleBaseURL,
           setModelId: setOpenaiCompatibleModelId,
           contextLimit: compatContextLimit,
@@ -229,6 +269,8 @@ export function ModelsSection() {
         return {
           baseURL: "",
           modelId: openrouterModelId,
+          source: "",
+          setSource: async () => {},
           setBaseURL: async () => {},
           setModelId: setOpenrouterModelId,
           noBaseURL: true,
@@ -244,7 +286,7 @@ export function ModelsSection() {
     const cfg = localConfig(id);
     if (!cfg) return false;
     if (id === "openai-compatible")
-      return !!cfg.baseURL.trim() && !!cfg.modelId.trim();
+      return !!cfg.baseURL.trim();
     return !!cfg.modelId.trim();
   };
 
@@ -264,10 +306,14 @@ export function ModelsSection() {
     if (id === "openrouter") {
       void setOpenrouterModelId("");
       void onClearKey(id);
+    } else if (id === "llama-cpp") {
+      void setLlamaCppModelId("");
+      void setLlamaCppSource("");
     } else if (isLocalProvider(id)) {
       const cfg = localConfig(id);
       if (cfg) {
         void cfg.setModelId("");
+        void cfg.setSource("");
         if (id === "openai-compatible") void cfg.setBaseURL("");
       }
       if (id === "openai-compatible") void onClearKey(id);
@@ -298,6 +344,7 @@ export function ModelsSection() {
         keys={keys}
         liveModels={liveModels}
         manualModels={{
+          "llama-cpp": llamaCppModelId,
           lmstudio: lmstudioModelId,
           mlx: mlxModelId,
           ollama: ollamaModelId,
@@ -364,12 +411,42 @@ export function ModelsSection() {
 type LocalConfig = {
   baseURL: string;
   modelId: string;
+  source: string;
+  setSource: (v: string) => Promise<void>;
   setBaseURL: (v: string) => Promise<void>;
   setModelId: (v: string) => Promise<void>;
   contextLimit?: number;
   setContextLimit?: (v: number) => Promise<void>;
   noBaseURL?: boolean;
 };
+
+type LlamaRuntimeStatus = {
+  running: boolean;
+  pid: number | null;
+  binary: string | null;
+  source: string | null;
+  model_id: string | null;
+  base_url: string | null;
+  command_line: string | null;
+  started_at_ms: number | null;
+};
+
+async function llamaRuntimeStatus(): Promise<LlamaRuntimeStatus> {
+  return invoke<LlamaRuntimeStatus>("llama_runtime_status");
+}
+
+async function llamaRuntimeStart(input: {
+  base_url: string;
+  model_id: string;
+  source: string;
+  binary_path?: string | null;
+}): Promise<LlamaRuntimeStatus> {
+  return invoke<LlamaRuntimeStatus>("llama_runtime_start", { input });
+}
+
+async function llamaRuntimeStop(): Promise<void> {
+  await invoke("llama_runtime_stop");
+}
 
 function AddProviderMenu({
   providers,
@@ -731,6 +808,8 @@ function LocalProviderCard({
   const {
     baseURL,
     modelId,
+    source,
+    setSource,
     setBaseURL,
     setModelId,
     contextLimit,
@@ -739,15 +818,42 @@ function LocalProviderCard({
   } = config;
   const [urlDraft, setUrlDraft] = useState(baseURL);
   const [modelDraft, setModelDraft] = useState(modelId);
+  const [sourceDraft, setSourceDraft] = useState(source);
   const [contextDraft, setContextDraft] = useState(String(contextLimit ?? ""));
   const [keyDraft, setKeyDraft] = useState("");
+  const [runtimeStatus, setRuntimeStatus] = useState<LlamaRuntimeStatus | null>(
+    null,
+  );
+  const [runtimeBusy, setRuntimeBusy] = useState<"starting" | "stopping" | null>(
+    null,
+  );
   const [testStatus, setTestStatus] = useState<
     "idle" | "testing" | "ok" | "fail"
   >("idle");
 
   useEffect(() => setUrlDraft(baseURL), [baseURL]);
   useEffect(() => setModelDraft(modelId), [modelId]);
+  useEffect(() => setSourceDraft(source), [source]);
   useEffect(() => setContextDraft(String(contextLimit ?? "")), [contextLimit]);
+
+  useEffect(() => {
+    if (provider.id !== "llama-cpp") return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const s = await llamaRuntimeStatus();
+        if (!cancelled) setRuntimeStatus(s);
+      } catch {
+        if (!cancelled) setRuntimeStatus(null);
+      }
+    };
+    void refresh();
+    const t = window.setInterval(() => void refresh(), 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, [provider.id]);
 
   const supportsKey =
     provider.id === "openai-compatible" || provider.id === "openrouter";
@@ -827,7 +933,9 @@ function LocalProviderCard({
           </FieldRow>
         )}
 
-        <FieldRow label="Model ID">
+        <FieldRow
+          label={provider.id === "openai-compatible" ? "Model ID (optional)" : "Model ID"}
+        >
           <Input
             value={modelDraft}
             onChange={(e) => setModelDraft(e.target.value)}
@@ -840,6 +948,22 @@ function LocalProviderCard({
             className="h-8 font-mono text-[11.5px]"
           />
         </FieldRow>
+
+        {provider.id === "llama-cpp" ? (
+          <FieldRow label="Source">
+            <Input
+              value={sourceDraft}
+              onChange={(e) => setSourceDraft(e.target.value)}
+              onBlur={() => {
+                const v = sourceDraft.trim();
+                if (v !== source) void setSource(v);
+              }}
+              placeholder="LiquidAI/LFM2.5-8B-A1B-GGUF:Q4_K_M or C:\\models\\foo.gguf"
+              spellCheck={false}
+              className="h-8 font-mono text-[11.5px]"
+            />
+          </FieldRow>
+        ) : null}
 
         {setContextLimit ? (
           <FieldRow label="Context">
@@ -907,6 +1031,61 @@ function LocalProviderCard({
         ) : null}
 
         <StatusLine status={testStatus} />
+
+        {provider.id === "llama-cpp" ? (
+          <FieldRow label="Runtime">
+            <div className="flex flex-1 items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={runtimeBusy !== null || !sourceDraft.trim() || !modelDraft.trim()}
+                onClick={async () => {
+                  setRuntimeBusy("starting");
+                  try {
+                    const out = await llamaRuntimeStart({
+                      base_url: urlDraft.trim(),
+                      model_id: modelDraft.trim(),
+                      source: sourceDraft.trim(),
+                      binary_path: null,
+                    });
+                    setRuntimeStatus(out);
+                  } catch {
+                    setRuntimeStatus(await llamaRuntimeStatus().catch(() => null));
+                  } finally {
+                    setRuntimeBusy(null);
+                  }
+                }}
+                className="h-8 px-3 text-[11px]"
+              >
+                {runtimeBusy === "starting" ? "Starting…" : "Start"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={runtimeBusy !== null || !runtimeStatus?.running}
+                onClick={async () => {
+                  setRuntimeBusy("stopping");
+                  try {
+                    await llamaRuntimeStop();
+                    setRuntimeStatus(await llamaRuntimeStatus());
+                  } catch {
+                    setRuntimeStatus(await llamaRuntimeStatus().catch(() => null));
+                  } finally {
+                    setRuntimeBusy(null);
+                  }
+                }}
+                className="h-8 px-3 text-[11px]"
+              >
+                {runtimeBusy === "stopping" ? "Stopping…" : "Stop"}
+              </Button>
+              <span className="text-[10.5px] text-muted-foreground">
+                {runtimeStatus?.running
+                  ? `Running${runtimeStatus.pid ? ` (pid ${runtimeStatus.pid})` : ""}`
+                  : "Stopped"}
+              </span>
+            </div>
+          </FieldRow>
+        ) : null}
 
         {!modelId.trim() && meta.modelHint ? (
           <p className="text-[10.5px] leading-relaxed text-muted-foreground">
