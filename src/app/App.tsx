@@ -128,10 +128,12 @@ const SIDEBAR_MIN_WIDTH = 220;
 const SIDEBAR_MAX_WIDTH = 480;
 const SIDEBAR_WIDTH_STORAGE_KEY = "terax.sidebar.width";
 const SIDEBAR_VIEW_STORAGE_KEY = "terax.sidebar.view";
+const SIDEBAR_COLLAPSED_STORAGE_KEY = "terax.sidebar.collapsed";
 const AI_SIDEBAR_DEFAULT_WIDTH = 560;
 const AI_SIDEBAR_MIN_WIDTH = 320;
 const AI_SIDEBAR_MAX_WIDTH = 820;
 const AI_SIDEBAR_WIDTH_STORAGE_KEY = "terax.ai.sidebar.width";
+const AI_SIDEBAR_COLLAPSED_STORAGE_KEY = "terax.ai.sidebar.collapsed";
 
 function clampSidebarWidth(width: number): number {
   return Math.min(
@@ -162,6 +164,14 @@ function readSidebarView(): SidebarViewId {
   return "explorer";
 }
 
+function readSidebarCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 function clampAiSidebarWidth(width: number): number {
   return Math.min(
     AI_SIDEBAR_MAX_WIDTH,
@@ -178,6 +188,16 @@ function readAiSidebarWidth(): number {
       : AI_SIDEBAR_DEFAULT_WIDTH;
   } catch {
     return AI_SIDEBAR_DEFAULT_WIDTH;
+  }
+}
+
+function readAiSidebarCollapsed(): boolean {
+  try {
+    return (
+      window.localStorage.getItem(AI_SIDEBAR_COLLAPSED_STORAGE_KEY) === "1"
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -240,9 +260,11 @@ export default function App() {
   const aiSidebarRef = useRef<PanelImperativeHandle | null>(null);
   const sidebarWidthRef = useRef(readSidebarWidth());
   const sidebarWidthWriteTimerRef = useRef(0);
+  const sidebarCollapsedRef = useRef(readSidebarCollapsed());
   const aiSidebarWidthRef = useRef(readAiSidebarWidth());
   const aiSidebarWidthWriteTimerRef = useRef(0);
   const aiSidebarResizeRafRef = useRef(0);
+  const aiSidebarCollapsedRef = useRef(readAiSidebarCollapsed());
   const [sidebarView, setSidebarViewState] = useState<SidebarViewId>(readSidebarView);
   const persistSidebarView = useCallback((view: SidebarViewId) => {
     setSidebarViewState(view);
@@ -252,12 +274,39 @@ export default function App() {
       // storage may fail in private mode
     }
   }, []);
+  const syncSidebarCollapsed = useCallback((collapsed: boolean) => {
+    sidebarCollapsedRef.current = collapsed;
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSED_STORAGE_KEY,
+        collapsed ? "1" : "0",
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+  const syncAiSidebarCollapsed = useCallback((collapsed: boolean) => {
+    aiSidebarCollapsedRef.current = collapsed;
+    try {
+      window.localStorage.setItem(
+        AI_SIDEBAR_COLLAPSED_STORAGE_KEY,
+        collapsed ? "1" : "0",
+      );
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
   const toggleSidebar = useCallback(() => {
     const p = sidebarRef.current;
     if (!p) return;
-    if (p.getSize().asPercentage <= 0) p.expand();
-    else p.collapse();
-  }, []);
+    if (p.getSize().asPercentage <= 0) {
+      p.expand();
+      syncSidebarCollapsed(false);
+    } else {
+      p.collapse();
+      syncSidebarCollapsed(true);
+    }
+  }, [syncSidebarCollapsed]);
   const cycleSidebarView = useCallback(
     (view: SidebarViewId) => {
       const panel = sidebarRef.current;
@@ -277,6 +326,14 @@ export default function App() {
   );
   const persistSidebarWidth = useCallback((next: number) => {
     sidebarWidthRef.current = next;
+    if (next > 0) {
+      sidebarCollapsedRef.current = false;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, "0");
+      } catch {
+        // ignore
+      }
+    }
     if (sidebarWidthWriteTimerRef.current) {
       window.clearTimeout(sidebarWidthWriteTimerRef.current);
     }
@@ -291,6 +348,14 @@ export default function App() {
   }, []);
   const persistAiSidebarWidth = useCallback((next: number) => {
     aiSidebarWidthRef.current = next;
+    if (next > 0) {
+      aiSidebarCollapsedRef.current = false;
+      try {
+        window.localStorage.setItem(AI_SIDEBAR_COLLAPSED_STORAGE_KEY, "0");
+      } catch {
+        // ignore storage errors
+      }
+    }
     if (aiSidebarWidthWriteTimerRef.current) {
       window.clearTimeout(aiSidebarWidthWriteTimerRef.current);
     }
@@ -323,6 +388,15 @@ export default function App() {
         window.cancelAnimationFrame(aiSidebarResizeRafRef.current);
       }
     };
+  }, []);
+  useEffect(() => {
+    const panel = sidebarRef.current;
+    if (!panel) return;
+    if (sidebarCollapsedRef.current) {
+      panel.collapse();
+    } else if (panel.isCollapsed()) {
+      panel.expand();
+    }
   }, []);
   const toggleExplorerFocus = useCallback(() => {
     const explorer = explorerRef.current;
@@ -472,7 +546,6 @@ export default function App() {
     (openaiCompatibleBaseURL.trim().length > 0 &&
       openaiCompatibleModelId.trim().length > 0);
   const hasComposer = hasAnyKey(apiKeys) || hasLocalModel;
-  const aiSidebarBootedRef = useRef(false);
 
   useEffect(() => {
     if (!(miniOpen && hasComposer)) return;
@@ -482,7 +555,9 @@ export default function App() {
       }
       aiSidebarResizeRafRef.current = window.requestAnimationFrame(() => {
         aiSidebarResizeRafRef.current = 0;
-        applyAiSidebarWidth();
+        if (!aiSidebarCollapsedRef.current) {
+          applyAiSidebarWidth();
+        }
       });
     };
     schedule();
@@ -496,14 +571,12 @@ export default function App() {
     };
   }, [miniOpen, hasComposer, applyAiSidebarWidth]);
 
-  const [keysLoaded, setKeysLoaded] = useState(false);
   useEffect(() => {
     let alive = true;
     const reload = () => {
       void getAllKeys().then((keys) => {
         if (!alive) return;
         setApiKeys(keys);
-        setKeysLoaded(true);
       });
     };
     reload();
@@ -526,13 +599,6 @@ export default function App() {
     if (!prefsHydrated) return;
     setSelectedModelId(prefDefaultModel);
   }, [prefsHydrated, prefDefaultModel, setSelectedModelId]);
-
-  useEffect(() => {
-    if (aiSidebarBootedRef.current) return;
-    if (!keysLoaded || !hasComposer) return;
-    aiSidebarBootedRef.current = true;
-    openMini();
-  }, [keysLoaded, hasComposer, openMini]);
 
   const hydrateSessions = useChatStore((s) => s.hydrateSessions);
   useEffect(() => {
@@ -1590,6 +1656,7 @@ export default function App() {
                 collapsedSize={0}
                 onResize={(size) => {
                   if (size.inPixels > 0) persistSidebarWidth(size.inPixels);
+                  else syncSidebarCollapsed(true);
                 }}
               >
                 <div className="flex h-full min-h-0 flex-col border-r border-border/60 bg-card">
@@ -1645,6 +1712,8 @@ export default function App() {
                           onResize={(size) => {
                             if (size.inPixels > 0) {
                               persistAiSidebarWidth(size.inPixels);
+                            } else {
+                              syncAiSidebarCollapsed(true);
                             }
                           }}
                         >

@@ -172,6 +172,26 @@ const NOOP_LIVE: Live = {
 
 const CHATS_LRU_CAP = 8;
 const chats = new Map<string, Chat<UIMessage>>();
+const MINI_OPEN_STORAGE_KEY = "terax.ai.mini.open";
+
+function readMiniOpen(): boolean {
+  try {
+    const stored = window.localStorage.getItem(MINI_OPEN_STORAGE_KEY);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+    // ignore
+  }
+  return true;
+}
+
+function writeMiniOpen(open: boolean): void {
+  try {
+    window.localStorage.setItem(MINI_OPEN_STORAGE_KEY, open ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
 
 function touchChat(id: string, c: Chat<UIMessage>) {
   if (chats.has(id)) chats.delete(id);
@@ -340,10 +360,21 @@ export const useChatStore = create<StoreState>((set, get) => ({
     void pushRecentModel(id);
   },
 
-  mini: { open: false },
-  openMini: () => set({ mini: { open: true } }),
-  closeMini: () => set({ mini: { open: false } }),
-  toggleMini: () => set((s) => ({ mini: { open: !s.mini.open } })),
+  mini: { open: readMiniOpen() },
+  openMini: () => {
+    writeMiniOpen(true);
+    set({ mini: { open: true } });
+  },
+  closeMini: () => {
+    writeMiniOpen(false);
+    set({ mini: { open: false } });
+  },
+  toggleMini: () =>
+    set((s) => {
+      const next = !s.mini.open;
+      writeMiniOpen(next);
+      return { mini: { open: next } };
+    }),
 
   panelOpen: false,
   openPanel: () => set({ panelOpen: true }),
